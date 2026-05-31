@@ -1,0 +1,144 @@
+*peeper-picker.txt*       LSP declaration, definition, and reference picker
+
+==============================================================================
+CONTENTS                                            *peeper-picker-contents*
+
+1. Introduction                                     |peeper-picker|
+2. Requirements                                     |peeper-picker-requirements|
+3. Installation                                     |peeper-picker-installation|
+4. Usage                                            |peeper-picker-usage|
+5. Configuration                                    |peeper-picker-configuration|
+6. Health                                           |peeper-picker-health|
+
+==============================================================================
+INTRODUCTION                                        *peeper-picker*
+
+peeper-picker.nvim opens a small picker for LSP declarations, definitions, and
+references for the symbol under the cursor.
+
+==============================================================================
+REQUIREMENTS                                        *peeper-picker-requirements*
+
+- Neovim 0.12.2 or newer
+- An attached LSP client that supports at least one of:
+  - textDocument/declaration
+  - textDocument/definition
+  - textDocument/references
+
+==============================================================================
+INSTALLATION                                        *peeper-picker-installation*
+
+With lazy.nvim: >
+
+  {
+    "parwest/peeper-picker.nvim",
+    main = "peeper_picker",
+    cmd = "PeeperPicker",
+    opts = {},
+  }
+<
+The plugin defines |:PeeperPicker| when it is loaded without loading the full
+picker. Calling setup applies your options: >
+
+  require("peeper_picker").setup({
+    -- options go here
+  })
+<
+If setup is not called, |:PeeperPicker| still works with the default options.
+
+==============================================================================
+USAGE                                               *peeper-picker-usage*
+
+Run: >
+
+  :PeeperPicker
+<
+Place the cursor on a symbol before running the command.
+
+Picker mappings:
+
+  <CR>        Open the selected result with the configured jump behavior
+  <C-v>       Open the selected result in a vertical split
+  <C-x>       Open the selected result in a horizontal split
+  <C-t>       Open the selected result in a tab
+  j / k       Move selection
+  f           Open filters
+  q / <Esc>   Close
+
+Filter mappings:
+
+  s           Cycle scope between file, directory, and workspace
+  1           Show references only
+  2           Show definitions/declarations only
+  3           Show both
+  p           Filter by path text
+  t           Filter by extension
+  r           Reset the focused filter
+  x           Reset all filters
+
+==============================================================================
+CONFIGURATION                                       *peeper-picker-configuration*
+
+Defaults: >
+
+  {
+    width = 92,
+    height = 18,
+    preview_width = 86,
+    preview_height = 14,
+    preview_context = 5,
+    border = "single",
+    title = " peeper-picker.nvim ",
+    jump = "tabedit",
+    reuse_window = true,
+    default_keymaps = {
+      enabled = false,
+      find = "<leader>pp",
+    },
+  }
+<
+`jump` controls what <CR> does. It can be an Ex command such as "edit",
+"split", "vsplit", or "tabedit": >
+
+  require("peeper_picker").setup({
+    jump = "edit",
+  })
+<
+It can also be a function: >
+
+  require("peeper_picker").setup({
+    jump = function(path, item)
+      vim.cmd("vsplit " .. vim.fn.fnameescape(path))
+    end,
+  })
+<
+By default, `reuse_window = true` jumps to an existing window if the selected
+file is already open. Set it to `false` if <CR> should always run the configured
+`jump` command. The split and tab picker mappings always create the requested
+split or tab.
+
+The built-in default keymap is disabled by default. To enable it: >
+
+  require("peeper_picker").setup({
+    default_keymaps = {
+      enabled = true,
+      find = "<leader>pp",
+    },
+  })
+<
+If the built-in mapping is later changed or disabled with another setup call,
+the previous built-in mapping is removed.
+
+==============================================================================
+HEALTH                                              *peeper-picker-health*
+
+Run: >
+
+  :checkhealth peeper_picker
+<
+The health check reports whether the running Neovim version is supported,
+whether the current buffer has attached LSP clients, and whether any attached
+client supports declaration, definition, or references.
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:
