@@ -54,6 +54,9 @@ Run: >
   :PeeperPicker
 <
 Place the cursor on a symbol before running the command.
+If the cursor is on a language keyword, the picker stays closed. peeper-picker
+uses Tree-sitter keyword captures when available, plus built-in fallback keyword
+lists for common development filetypes.
 
 Picker mappings:
 
@@ -68,11 +71,12 @@ Picker mappings:
 Filter mappings:
 
   s           Cycle scope between file, directory, and workspace
-  1           Show references only
-  2           Show definitions/declarations only
-  3           Show both
-  p           Filter by path text
-  t           Filter by extension
+  1           Show code
+  2           Show references
+  3           Show definitions
+  4           Show all
+  p           Filter by path text. Start with ! to exclude matching paths
+  t           Filter by extension. Start with ! to exclude matching extensions
   r           Reset the focused filter
   x           Reset all filters
 
@@ -85,7 +89,6 @@ Defaults: >
     width = 92,
     height = 18,
     preview_width = 86,
-    preview_height = 14,
     preview_context = 5,
     border = "single",
     title = " peeper-picker.nvim ",
@@ -95,6 +98,8 @@ Defaults: >
       enabled = false,
       find = "<leader>pp",
     },
+    ignored_dirs = {},
+    ignored_keywords = {},
   }
 <
 `jump` controls what <CR> does. It can be an Ex command such as "edit",
@@ -128,6 +133,43 @@ The built-in default keymap is disabled by default. To enable it: >
 <
 If the built-in mapping is later changed or disabled with another setup call,
 the previous built-in mapping is removed.
+
+`ignored_dirs` lets you add directory names to skip during the text search.
+Whatever you list is added to the always-ignored built-in set (.git,
+node_modules, .next, dist, build, target, .cache, .venv).
+
+`ignored_keywords` lets you add cursor words that should not open the picker.
+It is added to the built-in keyword fallbacks: >
+
+  require("peeper_picker").setup({
+    ignored_keywords = { "todo", "fixme" },
+  })
+<
+You can also scope additions by filetype, with "*" for global additions: >
+
+  require("peeper_picker").setup({
+    ignored_keywords = {
+      ["*"] = { "todo" },
+      javascript = { "require" },
+      sh = { "source" },
+    },
+  })
+<
+
+The path filter accepts plain text to include matching paths, or a leading ! to
+exclude matching paths: >
+
+  src     show paths containing src
+  !src/   hide paths containing src/
+  !core   hide paths containing core
+<
+
+The extension filter works the same way: >
+
+  js       show files ending in .js
+  !js      hide files ending in .js
+  !test.js hide files ending in .test.js
+<
 
 ==============================================================================
 HEALTH                                              *peeper-picker-health*
