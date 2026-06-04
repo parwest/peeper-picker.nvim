@@ -18,6 +18,17 @@ local function has_minimum_nvim()
   return version.patch >= 2
 end
 
+-- :checkhealth runs inside its own scratch buffer, which never has LSP clients
+-- attached. Fall back to the alternate buffer (the file the user was editing
+-- when they invoked :checkhealth) so the LSP checks reflect a real buffer.
+local function target_buffer()
+  local alt = vim.fn.bufnr("#")
+  if alt > 0 and vim.api.nvim_buf_is_valid(alt) then
+    return alt
+  end
+  return vim.api.nvim_get_current_buf()
+end
+
 local function client_names(clients)
   local names = {}
   for _, client in ipairs(clients) do
@@ -36,7 +47,7 @@ function M.check()
     vim.health.error(("Neovim %s or newer is required"):format(minimum_version))
   end
 
-  local bufnr = vim.api.nvim_get_current_buf()
+  local bufnr = target_buffer()
   local all_clients = vim.lsp.get_clients({ bufnr = bufnr })
   if #all_clients == 0 then
     vim.health.warn("No LSP clients are attached to the current buffer")

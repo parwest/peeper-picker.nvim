@@ -1,6 +1,7 @@
 local M = {}
 
 local results = require("peeper_picker.results")
+local classify = require("peeper_picker.lsp.classify")
 
 local methods = {
   decl = "textDocument/declaration",
@@ -9,6 +10,9 @@ local methods = {
 }
 
 M.methods = methods
+
+-- Symbol-kind detection lives in lsp.classify; re-export for callers.
+M.source_symbol = classify.source_symbol
 
 local function client_position_params(client, bufnr, params_by_encoding)
   local encoding = client.offset_encoding or "utf-16"
@@ -58,9 +62,40 @@ function M.supported_count(bufnr)
   return count
 end
 
+-- Each method we collect from: how to detect support, and how to build its
+-- request params (references needs includeDeclaration).
+local collectors = {
+  { kind = "decl", method = methods.decl },
+  { kind = "def", method = methods.def },
+  {
+    kind = "ref",
+    method = methods.ref,
+    augment = function(params)
+      params.context = { includeDeclaration = true }
+      return params
+    end,
+  },
+}
+
 function M.collect(bufnr, params_by_encoding, on_done)
   local items, seen = {}, {}
-  local pending = M.supported_count(bufnr)
+
+  -- Snapshot which collectors actually have a supporting client *now*, so the
+  -- pending count reflects the requests we are about to launch. Re-checking the
+  -- client count per collector after deriving pending from a separate pre-flight
+  -- count would leave on_done unfired if a client dropped in between.
+  local active = {}
+  for _, collector in ipairs(collectors) do
+    if #vim.lsp.get_clients({ bufnr = bufnr, method = collector.method }) > 0 then
+      table.insert(active, collector)
+    end
+  end
+
+  local pending = #active
+  if pending == 0 then
+    on_done(items)
+    return
+  end
 
   local function finish()
     pending = pending - 1
@@ -71,36 +106,16 @@ function M.collect(bufnr, params_by_encoding, on_done)
     on_done(items)
   end
 
-  if #vim.lsp.get_clients({ bufnr = bufnr, method = methods.decl }) > 0 then
-    request_all(bufnr, methods.decl, function(client)
-      return client_position_params(client, bufnr, params_by_encoding)
-    end, function(locations)
-      for _, entry in ipairs(locations) do
-        results.add(items, seen, entry.location, "decl", entry.encoding)
+  for _, collector in ipairs(active) do
+    request_all(bufnr, collector.method, function(client)
+      local params, encoding = client_position_params(client, bufnr, params_by_encoding)
+      if collector.augment then
+        params = collector.augment(params)
       end
-      finish()
-    end)
-  end
-
-  if #vim.lsp.get_clients({ bufnr = bufnr, method = methods.def }) > 0 then
-    request_all(bufnr, methods.def, function(client)
-      return client_position_params(client, bufnr, params_by_encoding)
+      return params, encoding
     end, function(locations)
       for _, entry in ipairs(locations) do
-        results.add(items, seen, entry.location, "def", entry.encoding)
-      end
-      finish()
-    end)
-  end
-
-  if #vim.lsp.get_clients({ bufnr = bufnr, method = methods.ref }) > 0 then
-    request_all(bufnr, methods.ref, function(client)
-      local ref_params, encoding = client_position_params(client, bufnr, params_by_encoding)
-      ref_params.context = { includeDeclaration = true }
-      return ref_params, encoding
-    end, function(locations)
-      for _, entry in ipairs(locations) do
-        results.add(items, seen, entry.location, "ref", entry.encoding)
+        results.add(items, seen, entry.location, collector.kind, entry.encoding)
       end
       finish()
     end)

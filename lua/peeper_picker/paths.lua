@@ -29,13 +29,30 @@ function M.separator()
   return sep
 end
 
+-- normalize() resolves each path through fnamemodify + fs_realpath, both
+-- syscalls. It runs in hot paths (filter passes on every streaming batch, and
+-- inside the sort comparator), so results are memoized on the raw input string.
+-- The cache is keyed by argument and only valid while the filesystem layout is
+-- stable, so reset_cache() is called at the start of every lookup.
+local normalize_cache = {}
+
+function M.reset_cache()
+  normalize_cache = {}
+end
+
 function M.normalize(path)
+  local cached = normalize_cache[path]
+  if cached ~= nil then
+    return cached
+  end
   local normalized = vim.fn.fnamemodify(path, ":p")
   normalized = uv.fs_realpath(normalized) or normalized
   if is_windows then
     normalized = normalized:gsub("/", "\\")
   end
-  return trim_trailing_sep(normalized)
+  normalized = trim_trailing_sep(normalized)
+  normalize_cache[path] = normalized
+  return normalized
 end
 
 function M.is_inside(path, root)
@@ -66,8 +83,19 @@ end
 local function git_root(start_path)
   local start = start_path and M.parent(start_path) or vim.fn.getcwd()
   local found = vim.fs.find(".git", { upward = true, path = start, limit = 1 })[1]
-  return found and M.parent(found) or nil
+  return found and M.normalize(vim.fs.dirname(found)) or nil
 end
+
+local project_markers = {
+  "package.json",
+  "tsconfig.json",
+  "jsconfig.json",
+  "deno.json",
+  "deno.jsonc",
+  "pyproject.toml",
+  "Cargo.toml",
+  "go.mod",
+}
 
 local function lsp_workspace_root(bufnr, current_path)
   local best = nil
@@ -81,6 +109,10 @@ local function lsp_workspace_root(bufnr, current_path)
     end
     for _, root in ipairs(roots) do
       local normalized = M.normalize(root)
+      local stat = uv.fs_stat(normalized)
+      if stat and stat.type ~= "directory" then
+        normalized = M.parent(normalized)
+      end
       if M.is_inside(current_path, normalized) and (not best or #normalized > #best) then
         best = normalized
       end
@@ -90,26 +122,74 @@ local function lsp_workspace_root(bufnr, current_path)
 end
 
 local function marker_root(start_path)
-  local markers = {
-    "package.json",
-    "tsconfig.json",
-    "jsconfig.json",
-    "deno.json",
-    "deno.jsonc",
-    "pyproject.toml",
-    "Cargo.toml",
-    "go.mod",
-  }
   local start = start_path and M.parent(start_path) or vim.fn.getcwd()
-  local found = vim.fs.find(markers, { upward = true, path = start, limit = 1 })[1]
+  local found = vim.fs.find(project_markers, { upward = true, path = start, limit = 1 })[1]
   return found and M.parent(found) or nil
 end
 
+local function too_broad(path)
+  if not path then
+    return true
+  end
+  local home = M.normalize(vim.fn.expand("~"))
+  -- reject home dir itself and anything above it (/, /Users, etc.)
+  return #comparable(path) <= #comparable(home)
+end
+
+local function valid_root(root, current_path)
+  if not root then
+    return nil
+  end
+  local normalized = M.normalize(root)
+  if too_broad(normalized) then
+    return nil
+  end
+  if current_path and current_path ~= "" and not M.is_inside(current_path, normalized) then
+    return nil
+  end
+  return normalized
+end
+
 function M.workspace_root(bufnr, current_path)
-  return lsp_workspace_root(bufnr, current_path)
-    or git_root(current_path or vim.fn.getcwd())
-    or marker_root(current_path or vim.fn.getcwd())
-    or M.normalize(vim.fn.getcwd())
+  local start = current_path or vim.fn.getcwd()
+
+  local marker = valid_root(marker_root(start), current_path)
+  if marker then
+    return marker
+  end
+
+  local lsp_root = valid_root(lsp_workspace_root(bufnr, current_path), current_path)
+  local git = valid_root(git_root(start), current_path)
+  local current_dir = current_path and current_path ~= "" and M.parent(current_path) or nil
+
+  -- Some LSP clients enter single-file mode and report the current file, or its
+  -- containing directory, as root_dir. For text search that is too narrow: in a
+  -- nested file it would only scan sibling files. If a real git root exists, use
+  -- that broader project boundary instead.
+  if
+    lsp_root
+    and git
+    and current_dir
+    and comparable(lsp_root) == comparable(current_dir)
+    and M.is_inside(lsp_root, git)
+    and comparable(lsp_root) ~= comparable(git)
+  then
+    return git
+  end
+
+  if lsp_root then
+    return lsp_root
+  end
+
+  if git then
+    return git
+  end
+
+  -- last resort: the file's own directory, never the broad cwd
+  if current_path and current_path ~= "" then
+    return M.parent(current_path)
+  end
+  return M.normalize(vim.fn.getcwd())
 end
 
 function M.display_uri(uri)

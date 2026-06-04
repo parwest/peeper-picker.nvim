@@ -3,13 +3,21 @@ local M = {}
 local paths = require("peeper_picker.paths")
 
 local max_cached_lines = 20000
+-- Cap the number of cached entries so a long-lived session browsing many
+-- files/lines cannot grow the caches without bound.
+local max_cached_files = 64
+local max_cached_line_entries = 4096
 
 M.line_cache = {}
+M.line_cache_count = 0
 M.file_cache = {}
+M.file_cache_count = 0
 
 function M.reset()
   M.line_cache = {}
+  M.line_cache_count = 0
   M.file_cache = {}
+  M.file_cache_count = 0
 end
 
 local function loaded_buffer_lines(uri, first, last)
@@ -27,7 +35,12 @@ local function read_file(uri)
   if not ok then
     lines = {}
   end
+  if M.file_cache_count >= max_cached_files then
+    M.file_cache = {}
+    M.file_cache_count = 0
+  end
   M.file_cache[uri] = lines
+  M.file_cache_count = M.file_cache_count + 1
   return lines
 end
 
@@ -52,7 +65,12 @@ function M.line_at(uri, lnum)
   end
   local lines = read_lines(uri, lnum, lnum + 1)
   local line = vim.trim(lines[1] or "")
+  if M.line_cache_count >= max_cached_line_entries then
+    M.line_cache = {}
+    M.line_cache_count = 0
+  end
   M.line_cache[key] = line
+  M.line_cache_count = M.line_cache_count + 1
   return line
 end
 

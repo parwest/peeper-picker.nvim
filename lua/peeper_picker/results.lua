@@ -38,6 +38,12 @@ function M.add(items, seen, location, kind, position_encoding)
 end
 
 function M.rank(item)
+  if item.kind == "com" then
+    return 4
+  end
+  if item.kind == "txt" then
+    return 3
+  end
   return item.kind == "ref" and 2 or 1
 end
 
@@ -62,11 +68,20 @@ function M.key(item)
 end
 
 function M.display_kind(kind)
-  return kind == "ref" and "REF" or "DEF"
+  if kind == "ref" then
+    return "REF"
+  end
+  if kind == "txt" then
+    return "TXT"
+  end
+  if kind == "com" then
+    return "COM"
+  end
+  return "DEF"
 end
 
 function M.index_width(count)
-  return math.max(2, #tostring(math.max(count or 0, 1)))
+  return math.max(4, #tostring(math.max(count or 0, 1)))
 end
 
 function M.format_line(item, idx, count)
