@@ -1,15 +1,32 @@
 local M = {}
 
 local paths = require("peeper_picker.paths")
+local config = require("peeper_picker.config")
+
+local result_filter_aliases = {
+  all = "all",
+  code = "code",
+  refs = "refs",
+  references = "refs",
+  defs = "defs",
+  definitions = "defs",
+}
+
+function M.default_result_mode()
+  local configured = config.options.defaultResultFiltering
+  return result_filter_aliases[tostring(configured or "all"):lower()] or "all"
+end
 
 function M.defaults()
-  return {
+  local filters = {
     scope = "workspace",
     kind_mode = "both",
     match_mode = "code",
     path = "",
     extension = "",
   }
+  M.set_result_mode(filters, M.default_result_mode())
+  return filters
 end
 
 local function path_matches(item_path, uri, needle, source)

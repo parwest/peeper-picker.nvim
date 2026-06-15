@@ -2,11 +2,11 @@
 
 A focused Neovim usage picker for the symbol under your cursor.
 
-peeper-picker is LSP-first, but not LSP-only. Language servers are the best
-source of truth for definitions, declarations, and semantic references. But LSP
-reference results can be incomplete: strings, templates, prose, comments,
-generated edges, project root weirdness, and server indexing gaps can all hide
-places where a symbol still matters.
+peeper-picker is LSP-gated and LSP-first. It only opens when an attached language
+server supports definitions, declarations, or references, and it treats that
+server as the source of truth. But LSP reference results can be incomplete:
+strings, templates, prose, comments, generated edges, project root weirdness, and
+server indexing gaps can all hide places where a symbol still matters.
 
 To cover those misses, peeper-picker also runs a streaming workspace text search
 for the same symbol. Literal matches that look like code are included with
@@ -31,9 +31,10 @@ textual match is a real semantic reference.
 ## Requirements
 
 - Neovim 0.12.2 or newer
-- An attached LSP client that supports definition, declaration, or references is
-  recommended. Without one you still get the workspace text search, just without
-  the confirmed definition/reference tags.
+- An attached LSP client that supports definition, declaration, or references.
+  peeper-picker is LSP-gated: with no supporting client attached it does nothing
+  (and warns), so the workspace text search never runs on its own — it only
+  augments live LSP results.
 
 ## Installation
 
@@ -111,12 +112,12 @@ For Neovim help, run `:help peeper-picker`.
 
 Each result is tagged by where it came from:
 
-| Tag | Meaning |
-| --- | --- |
-| `DEF` | A definition or declaration confirmed by the LSP |
+| Tag   | Meaning                                                         |
+| ----- | --------------------------------------------------------------- |
+| `DEF` | A definition or declaration confirmed by the LSP                |
 | `REF` | A code occurrence, either LSP-confirmed or found by text search |
-| `TXT` | A textual match inside a string, template, or prose file |
-| `COM` | A textual match inside a comment |
+| `TXT` | A textual match inside a string, template, or prose file        |
+| `COM` | A textual match inside a comment                                |
 
 `DEF` comes from the language server. `REF` includes LSP references plus
 code-looking text matches that the language server did not report. `TXT` and
@@ -125,31 +126,35 @@ server didn't already report that location, so you never see the same hit twice.
 
 Picker keys:
 
-| Key | Action |
-| --- | --- |
-| `<CR>` | Open the selected result with your configured jump behavior |
-| `<C-v>` | Open the selected result in a new vertical split |
-| `<C-x>` | Open the selected result in a new horizontal split |
-| `<C-t>` | Open the selected result in a new tab |
-| `j` / `k` | Move selection |
-| `f` | Open filters |
-| `q` / `<Esc>` | Close |
+| Key           | Action                                                      |
+| ------------- | ----------------------------------------------------------- |
+| `<CR>`        | Open the selected result with your configured jump behavior |
+| `<C-v>`       | Open the selected result in a new vertical split            |
+| `<C-x>`       | Open the selected result in a new horizontal split          |
+| `<C-t>`       | Open the selected result in a new tab                       |
+| `j` / `k`     | Move selection (wraps around the ends)                      |
+| `gg` / `G`    | Jump to the first / last result                             |
+| `f`           | Open filters                                                |
+| `q` / `<Esc>` | Close                                                       |
+
+A count works like normal Vim motion: `5j` / `5k` move five rows and stop at the
+end if there are fewer rows left.
 
 Filter keys:
 
-*you do not need to navigate your cursor to the filtering options to apply changes, just press the corresponding key*
+_you do not need to navigate your cursor to the filtering options to apply changes, just press the corresponding key_
 
-| Key | Action |
-| --- | --- |
-| `s` | Cycle scope between file, directory, and workspace |
+| Key | Action                                                                            |
+| --- | --------------------------------------------------------------------------------- |
+| `s` | Cycle scope between file, directory, and workspace                                |
 | `1` | Show code — definitions, references, and code occurrences (hides `TXT` and `COM`) |
-| `2` | Show references — occurrences only, no definitions or declarations |
-| `3` | Show definitions — declarations and definitions only |
-| `4` | Show all — everything, including string, prose, and comment matches |
-| `p` | Filter by path text. Start with `!` to exclude matching paths |
-| `t` | Filter by extension. Start with `!` to exclude matching extensions |
-| `r` | Reset the focused filter |
-| `x` | Reset all filters |
+| `2` | Show references — occurrences only, no definitions or declarations                |
+| `3` | Show definitions — declarations and definitions only                              |
+| `4` | Show all — everything, including string, prose, and comment matches               |
+| `p` | Filter by path text. Start with `!` to exclude matching paths                     |
+| `t` | Filter by extension. Start with `!` to exclude matching extensions                |
+| `r` | Reset the focused filter                                                          |
+| `x` | Reset all filters                                                                 |
 
 ## Configuration
 
@@ -165,6 +170,7 @@ Defaults:
   title = " peeper-picker.nvim ",
   jump = "tabedit",
   reuse_window = true,
+  defaultResultFiltering = "all",
   default_keymaps = {
     enabled = false,
     find = "<leader>pp",
@@ -173,6 +179,20 @@ Defaults:
   ignored_keywords = {},
 }
 ```
+
+`defaultResultFiltering` sets which result filter the picker opens with. It
+defaults to `"all"`, so every match including string, prose, and comment
+hits — is visible up front. Set it to `"code"`, `"references"`, or
+`"definitions"` to start narrower:
+
+```lua
+opts = {
+  defaultResultFiltering = "code",
+}
+```
+
+You can still cycle the filter at runtime with the `1`/`2`/`3`/`4` keys in the
+filter panel; this option only controls the starting state.
 
 `ignored_dirs` lets you add directory names to skip during the text search.
 Whatever you list is **added** to the always-ignored built-in set (`.git`,

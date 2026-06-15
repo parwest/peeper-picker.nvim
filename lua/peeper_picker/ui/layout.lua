@@ -1,7 +1,7 @@
 local M = {}
 
 -- Number of rows reserved for the header window.
-M.header_height = 3
+M.header_height = 4
 
 -- Compute the geometry of the menu given the user's size options and the
 -- current editor dimensions. Returns a table of widths/heights.

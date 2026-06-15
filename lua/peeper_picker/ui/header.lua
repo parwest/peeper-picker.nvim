@@ -37,27 +37,75 @@ function M.symbol_highlight(source, width)
   return start_col, end_col
 end
 
-function M.lines(state, left_width, right_width)
-  local source = state.source or {}
-  local path = source.path and paths.display_path(source.path) or "[No Name]"
-  local pos = source.line and source.character and (":%d:%d"):format(source.line, source.character) or ""
-  local root = source.workspace_root and paths.display_path(source.workspace_root) or vim.fn.getcwd()
-  local active_filters = { "results=" .. filters_mod.result_label(state.filters) }
+local function origin_path(source)
+  if not source.path or source.path == "" then
+    return "[No Name]"
+  end
+  if source.workspace_root then
+    local relative = paths.relative_to(source.path, source.workspace_root)
+    if relative and relative ~= "" then
+      return relative
+    end
+  end
+  return paths.display_path(source.path)
+end
+
+local function filter_summary(state)
+  local active = { "results=" .. filters_mod.result_label(state.filters) }
   if state.filters.scope ~= "workspace" then
-    table.insert(active_filters, "scope=" .. filters_mod.scope_label(state.filters.scope))
+    table.insert(active, "scope=" .. filters_mod.scope_label(state.filters.scope))
   end
   if state.filters.path ~= "" then
-    table.insert(active_filters, "path=" .. filters_mod.field_label(state.filters.path))
+    table.insert(active, "path=" .. filters_mod.field_label(state.filters.path))
   end
   if state.filters.extension ~= "" then
-    table.insert(active_filters, "ext=" .. filters_mod.extension_label(state.filters.extension))
+    table.insert(active, "ext=" .. filters_mod.extension_label(state.filters.extension))
   end
-  local filter_summary = table.concat(active_filters, "  ")
-  return {
-    text.fit_text(("Searching for: %s"):format(source_symbol_label(source)), left_width) .. "│" .. text.fit_text(path .. pos, right_width),
-    text.fit_text(("Filters  %s"):format(filter_summary), left_width) .. "│" .. text.fit_text("Workspace  " .. root, right_width),
-    string.rep("─", left_width) .. "┼" .. string.rep("─", right_width),
+  return table.concat(active, "  ")
+end
+
+function M.render(state, left_width, right_width)
+  local source = state.source or {}
+
+  local pos = source.line and source.character and (":%d:%d"):format(source.line, source.character) or ""
+  local lang = source.filetype and source.filetype ~= "" and source.filetype or "unknown"
+  local root = source.workspace_root and paths.display_path(source.workspace_root) or vim.fn.getcwd()
+  local code = vim.trim(source.line_text or "")
+  local snippet = code ~= "" and ("line %d  %s"):format(source.line or 0, code) or "(source line unavailable)"
+
+  local left_cells = {
+    ("Searching for: %s"):format(source_symbol_label(source)),
+    ("Filters  %s"):format(filter_summary(state)),
+    "",
   }
+  local right_cells = {
+    ("%s%s  ·  %s"):format(origin_path(source), pos, lang),
+    snippet,
+    ("Workspace  %s"):format(root),
+  }
+
+  local lines, highlights = {}, {}
+  local right_starts = {}
+  for i = 1, 3 do
+    local left_cell = text.fit_text(left_cells[i] or "", left_width)
+    lines[i] = left_cell .. "│" .. text.fit_text(right_cells[i] or "", right_width)
+    right_starts[i] = #left_cell + #("│")
+  end
+  lines[4] = string.rep("─", left_width) .. "┼" .. string.rep("─", right_width)
+
+  local left_start, left_end = M.symbol_highlight(source, left_width)
+  if left_start and left_end then
+    highlights[#highlights + 1] = { row = 0, start_col = left_start, end_col = left_end }
+  end
+
+  if code ~= "" then
+    local trimmed = (text.fit_text(snippet, right_width):gsub("%s+$", ""))
+    if #trimmed > 0 then
+      highlights[#highlights + 1] = { row = 1, start_col = right_starts[2], end_col = right_starts[2] + #trimmed }
+    end
+  end
+
+  return { lines = lines, highlights = highlights }
 end
 
 return M
