@@ -69,10 +69,12 @@ function M.preview_definition(buf, target_line, end_col)
   add_hl(buf, results_ns, "PeeperPickerDefinition", target_line - 1, 0, end_col or -1)
 end
 
-function M.header_symbol(buf, start_col, end_col)
+function M.header_symbols(buf, specs)
   vim.api.nvim_buf_clear_namespace(buf, header_symbol_ns, 0, -1)
-  if start_col and end_col then
-    add_hl(buf, header_symbol_ns, "PeeperPickerSymbolName", 0, start_col, end_col)
+  for _, spec in ipairs(specs or {}) do
+    if spec.start_col and spec.end_col then
+      add_hl(buf, header_symbol_ns, "PeeperPickerSymbolName", spec.row, spec.start_col, spec.end_col)
+    end
   end
 end
 

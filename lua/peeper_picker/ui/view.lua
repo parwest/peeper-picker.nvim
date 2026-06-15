@@ -16,9 +16,9 @@ local function redraw_header(state)
   if not menu or not menu.header_buf or not vim.api.nvim_buf_is_valid(menu.header_buf) then
     return
   end
-  text.set_buf_lines(menu.header_buf, header.lines(state, menu.list_width or 32, menu.preview_width or 32))
-  local start_col, end_col = header.symbol_highlight(state.source or {}, menu.list_width or 32)
-  highlight.header_symbol(menu.header_buf, start_col, end_col)
+  local rendered = header.render(state, menu.list_width or 32, menu.preview_width or 32)
+  text.set_buf_lines(menu.header_buf, rendered.lines)
+  highlight.header_symbols(menu.header_buf, rendered.highlights)
 end
 
 local function redraw_list(state)
@@ -176,12 +176,29 @@ function M.move_cursor(state, delta)
   if not menu or not menu.list_win or not vim.api.nvim_win_is_valid(menu.list_win) or #state.items == 0 then
     return
   end
+  local count = #state.items
   local current = select(2, list.item_from_cursor(state)) or 1
-  local pos = text.clamp(current + delta, 1, #state.items)
+  local pos
+  if math.abs(delta) <= 1 then
+    pos = ((current - 1 + delta) % count) + 1
+  else
+    pos = text.clamp(current + delta, 1, count)
+  end
   menu.pending_selected_row = pos
   if menu.list_win and vim.api.nvim_win_is_valid(menu.list_win) then
     vim.api.nvim_win_set_cursor(menu.list_win, { pos, 0 })
   end
+  M.update_preview(state)
+end
+
+function M.jump_to(state, pos)
+  local menu = state.menu
+  if not menu or not menu.list_win or not vim.api.nvim_win_is_valid(menu.list_win) or #state.items == 0 then
+    return
+  end
+  pos = text.clamp(pos, 1, #state.items)
+  menu.pending_selected_row = pos
+  vim.api.nvim_win_set_cursor(menu.list_win, { pos, 0 })
   M.update_preview(state)
 end
 

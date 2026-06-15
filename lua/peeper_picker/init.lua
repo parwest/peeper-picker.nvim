@@ -106,6 +106,7 @@ function M.find()
     word = word,
     line = cursor[1],
     character = cursor[2] + 1,
+    line_text = vim.api.nvim_buf_get_lines(bufnr, cursor[1] - 1, cursor[1], false)[1] or "",
   }
   local params_by_encoding = {}
   for _, encoding in ipairs({ "utf-8", "utf-16", "utf-32" }) do

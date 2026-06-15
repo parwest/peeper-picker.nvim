@@ -33,12 +33,12 @@ local function render_filter_menu(state)
     "  choices: file / dir / workspace",
     "  " .. filters_mod.scope_hint(state.source),
     "",
-    filter_line("results", filters_mod.result_label(state.filters), filters_mod.result_mode(state.filters) ~= "code"),
+    filter_line("results", filters_mod.result_label(state.filters), filters_mod.result_mode(state.filters) ~= filters_mod.default_result_mode()),
     "  press 1 to show code",
     "  press 2 to show references",
     "  press 3 to show definitions",
     "  press 4 to show all",
-    "  default: code",
+    "  default: " .. filters_mod.default_result_mode(),
     "",
     filter_line("path", filters_mod.path_label(state.filters.path), state.filters.path ~= ""),
     "  press p to filter by path",
@@ -220,7 +220,7 @@ function M.open(state)
     if field == "scope" then
       state.filters.scope = "workspace"
     elseif field == "results" then
-      filters_mod.set_result_mode(state.filters, "code")
+      filters_mod.set_result_mode(state.filters, filters_mod.default_result_mode())
     elseif field == "path" or field == "extension" then
       state.filters[field] = ""
     else

@@ -9,6 +9,7 @@ M.defaults = {
   title = " peeper-picker.nvim ",
   jump = "tabedit",
   reuse_window = true,
+  defaultResultFiltering = "all",
   default_keymaps = {
     enabled = false,
     find = "<leader>pp",
