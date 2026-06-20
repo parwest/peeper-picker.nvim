@@ -8,8 +8,6 @@ local lifecycle = require("peeper_picker.ui.lifecycle")
 local filter_panel = require("peeper_picker.ui.filter_panel")
 local jump = require("peeper_picker.ui.jump")
 
--- Creates the three floating windows (header / list / preview), wires the
--- buffer-local keymaps, and kicks off the loading view.
 function M.open(state, lookup_id)
   local prompt = state.filter_prompt
   if prompt and prompt.win and vim.api.nvim_win_is_valid(prompt.win) then
@@ -47,6 +45,7 @@ function M.open(state, lookup_id)
     border = state.opts.border,
     title = state.opts.title,
     title_pos = "center",
+    focusable = false,
   })
 
   local list_buf = vim.api.nvim_create_buf(false, true)
@@ -61,6 +60,7 @@ function M.open(state, lookup_id)
     border = state.opts.border,
     title = " preview ",
     title_pos = "center",
+    focusable = false,
   })
   local list_win = vim.api.nvim_open_win(list_buf, true, {
     relative = "editor",
@@ -85,6 +85,8 @@ function M.open(state, lookup_id)
   vim.wo[header_win].wrap = false
   vim.wo[list_win].cursorline = false
   vim.wo[list_win].wrap = false
+  vim.wo[list_win].scrolloff = 0
+  vim.wo[list_win].sidescrolloff = 0
   vim.wo[preview_win].cursorline = false
   vim.wo[preview_win].wrap = false
   state.menu = {
@@ -101,6 +103,8 @@ function M.open(state, lookup_id)
     list_width = list_width,
     preview_width = preview_width,
     pane_height = pane_height,
+    -- stay anchored to row 1 until the cursor actually moves
+    selection_locked = false,
   }
   for _, win in ipairs({ header_win, list_win, preview_win }) do
     vim.api.nvim_create_autocmd("WinClosed", {
@@ -111,6 +115,19 @@ function M.open(state, lookup_id)
       end,
     })
   end
+
+  state.menu.augroup = vim.api.nvim_create_augroup("PeeperPickerFocus", { clear = true })
+  vim.api.nvim_create_autocmd("WinEnter", {
+    group = state.menu.augroup,
+    callback = function()
+      if not state.menu then
+        return
+      end
+      vim.schedule(function()
+        lifecycle.close_if_focus_left(state)
+      end)
+    end,
+  })
 
   view.render_loading(state)
   local bind = keymap.bind
@@ -127,12 +144,42 @@ function M.open(state, lookup_id)
   bind(list_buf, "n", "gg", function() view.jump_to(state, 1) end)
   bind(list_buf, "n", "G", function() view.jump_to(state, #state.items) end)
   bind(list_buf, "n", "f", function() filter_panel.open(state) end)
+  bind(list_buf, "n", "=", function()
+    if state.expand_results then
+      state.expand_results()
+    end
+  end)
   bind(list_buf, "n", "<Enter>", function() jump.select_current(state) end)
   bind(list_buf, "n", "<CR>", function() jump.select_current(state) end)
   bind(list_buf, "n", "<C-m>", function() jump.select_current(state) end)
   bind(list_buf, "n", "<C-v>", function() jump.select_current(state, "vsplit", false) end)
   bind(list_buf, "n", "<C-x>", function() jump.select_current(state, "split", false) end)
   bind(list_buf, "n", "<C-t>", function() jump.select_current(state, "tabedit", false) end)
+  bind(list_buf, "n", "<LeftMouse>", function()
+    local menu = state.menu
+    if not menu then
+      return
+    end
+    local pos = vim.fn.getmousepos()
+    if pos.winid == menu.list_win then
+      if #state.items > 0 and pos.line >= 1 then
+        view.jump_to(state, pos.line)
+      end
+    elseif not lifecycle.is_picker_window(state, pos.winid) then
+      lifecycle.close_menu(state)
+    end
+  end)
+  bind(list_buf, "n", "<2-LeftMouse>", function()
+    local menu = state.menu
+    if not menu then
+      return
+    end
+    local pos = vim.fn.getmousepos()
+    if pos.winid == menu.list_win and #state.items > 0 and pos.line >= 1 then
+      view.jump_to(state, pos.line)
+      jump.select_current(state)
+    end
+  end)
 end
 
 return M

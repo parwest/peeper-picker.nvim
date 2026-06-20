@@ -130,19 +130,16 @@ function M.open(state)
     if not prompt then
       return
     end
+    state.filter_prompt = nil
     vim.cmd("stopinsert")
+    local menu_win = state.filter_menu and state.filter_menu.win
+    if menu_win and vim.api.nvim_win_is_valid(menu_win) then
+      pcall(vim.api.nvim_set_current_win, menu_win)
+    end
     if prompt.win and vim.api.nvim_win_is_valid(prompt.win) then
       vim.api.nvim_win_close(prompt.win, true)
     end
-    state.filter_prompt = nil
-    if state.filter_menu and state.filter_menu.win and vim.api.nvim_win_is_valid(state.filter_menu.win) then
-      vim.schedule(function()
-        if state.filter_menu and state.filter_menu.win and vim.api.nvim_win_is_valid(state.filter_menu.win) then
-          vim.cmd("stopinsert")
-          vim.api.nvim_set_current_win(state.filter_menu.win)
-        end
-      end)
-    elseif cancelled then
+    if (not menu_win or not vim.api.nvim_win_is_valid(menu_win)) and cancelled then
       lifecycle.close_menu(state)
     end
   end
@@ -201,12 +198,10 @@ function M.open(state)
     local function cancel()
       close_prompt(true)
     end
-    for lhs, fn in pairs({ ["<CR>"] = accept, ["<Esc>"] = cancel, q = cancel, ["<F9>"] = cancel }) do
-      keymap.bind(buf_prompt, "i", lhs, fn)
-    end
-    keymap.bind(buf_prompt, "n", "q", cancel)
+    keymap.bind(buf_prompt, "i", "<CR>", accept)
+    keymap.bind(buf_prompt, "i", "<Esc>", cancel)
+    keymap.bind(buf_prompt, "n", "<CR>", accept)
     keymap.bind(buf_prompt, "n", "<Esc>", cancel)
-    keymap.bind(buf_prompt, "n", "<F9>", cancel)
     vim.cmd("startinsert!")
   end
   local function reset_all()

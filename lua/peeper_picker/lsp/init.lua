@@ -11,7 +11,6 @@ local methods = {
 
 M.methods = methods
 
--- Symbol-kind detection lives in lsp.classify; re-export for callers.
 M.source_symbol = classify.source_symbol
 
 local function client_position_params(client, bufnr, params_by_encoding)
@@ -62,8 +61,6 @@ function M.supported_count(bufnr)
   return count
 end
 
--- Each method we collect from: how to detect support, and how to build its
--- request params (references needs includeDeclaration).
 local collectors = {
   { kind = "decl", method = methods.decl },
   { kind = "def", method = methods.def },
@@ -80,10 +77,7 @@ local collectors = {
 function M.collect(bufnr, params_by_encoding, on_done)
   local items, seen = {}, {}
 
-  -- Snapshot which collectors actually have a supporting client *now*, so the
-  -- pending count reflects the requests we are about to launch. Re-checking the
-  -- client count per collector after deriving pending from a separate pre-flight
-  -- count would leave on_done unfired if a client dropped in between.
+  -- snapshot supported methods up front so pending matches the requests launched
   local active = {}
   for _, collector in ipairs(collectors) do
     if #vim.lsp.get_clients({ bufnr = bufnr, method = collector.method }) > 0 then

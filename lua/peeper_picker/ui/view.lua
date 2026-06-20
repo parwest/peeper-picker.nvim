@@ -8,9 +8,6 @@ local preview_pane = require("peeper_picker.ui.preview_pane")
 local filters_mod = require("peeper_picker.filters")
 local results = require("peeper_picker.results")
 
--- Rendering controller: draws the three panes from `state` and owns the
--- view-mode transitions (loading / empty / results) plus navigation redraws.
-
 local function redraw_header(state)
   local menu = state.menu
   if not menu or not menu.header_buf or not vim.api.nvim_buf_is_valid(menu.header_buf) then
@@ -21,14 +18,21 @@ local function redraw_header(state)
   highlight.header_symbols(menu.header_buf, rendered.highlights)
 end
 
-local function redraw_list(state)
+local function redraw_list(state, changed)
   local menu = state.menu
   if not menu or not menu.list_buf or not vim.api.nvim_buf_is_valid(menu.list_buf) then
     return
   end
-  text.set_buf_lines(menu.list_buf, list.lines(state, menu))
-  vim.api.nvim_buf_clear_namespace(menu.list_buf, -1, 0, -1)
-  highlight.apply_results(menu.list_buf, state.items, menu.list_width, 0, 1, #state.items)
+  if changed == "all" then
+    text.set_buf_lines(menu.list_buf, list.lines(state, menu))
+    vim.api.nvim_buf_clear_namespace(menu.list_buf, highlight.results_ns, 0, -1)
+    highlight.apply_results(menu.list_buf, state.items, menu.list_width, 0, 1, #state.items)
+  elseif changed then
+    local first, last = changed.first, changed.last
+    text.set_buf_line_range(menu.list_buf, first - 1, last, list.fit_range(state, menu, first, last))
+    vim.api.nvim_buf_clear_namespace(menu.list_buf, highlight.results_ns, first - 1, last)
+    highlight.apply_results(menu.list_buf, state.items, menu.list_width, first - 1, first, last - first + 1)
+  end
 end
 
 local function redraw_preview(state, item)
@@ -50,7 +54,8 @@ local function update_winbar(state)
     return
   end
   local summary = #state.items > 0 and ("%d results"):format(#state.items) or "no results"
-  vim.wo[menu.win].winbar = (" j/k move  ENTER open  f filters  q quit  %s "):format(summary)
+  local expand = state.result_meta and state.result_meta.expandable and "  = expand" or ""
+  vim.wo[menu.win].winbar = (" j/k move  ENTER open  f filters%s  q quit  %s "):format(expand, summary)
 end
 
 local function redraw_panes(state, selected_idx)
@@ -62,18 +67,31 @@ local function redraw_panes(state, selected_idx)
   local idx = selected_idx or 1
   local item = state.items[idx]
 
-  if state.left_lines_dirty then
+  local changed
+  if state.left_lines_dirty or #state.items == 0 then
     list.rebuild(state, idx)
     state.left_lines_dirty = false
+    changed = "all"
   else
-    list.hydrate(state, idx)
+    local cfirst, clast = list.hydrate(state, idx)
+    changed = cfirst and { first = cfirst, last = clast } or nil
   end
 
-  redraw_header(state)
-  redraw_list(state)
+  local list_win_valid = menu.list_win and vim.api.nvim_win_is_valid(menu.list_win)
+  local saved_view = list_win_valid and vim.api.nvim_win_call(menu.list_win, vim.fn.winsaveview) or nil
+
+  if changed == "all" then
+    redraw_header(state)
+  end
+  redraw_list(state, changed)
   redraw_preview(state, item)
 
-  if menu.list_win and vim.api.nvim_win_is_valid(menu.list_win) then
+  if list_win_valid then
+    if saved_view then
+      vim.api.nvim_win_call(menu.list_win, function()
+        vim.fn.winrestview(saved_view)
+      end)
+    end
     local cursor_row = item and idx or 1
     vim.api.nvim_win_set_cursor(menu.list_win, { cursor_row, 0 })
   end
@@ -141,7 +159,11 @@ function M.render_empty(state)
 end
 
 function M.apply_filters(state, preserve_key)
-  local keep_key = preserve_key or list.selected_key(state)
+  local menu = state.menu
+  local keep_key = preserve_key
+  if keep_key == nil and menu and menu.selection_locked then
+    keep_key = list.selected_key(state)
+  end
   state.items = filters_mod.apply(state.all_items, state.filters, state.source)
   state.left_lines_dirty = true
   if #state.items == 0 then
@@ -184,6 +206,7 @@ function M.move_cursor(state, delta)
   else
     pos = text.clamp(current + delta, 1, count)
   end
+  menu.selection_locked = true
   menu.pending_selected_row = pos
   if menu.list_win and vim.api.nvim_win_is_valid(menu.list_win) then
     vim.api.nvim_win_set_cursor(menu.list_win, { pos, 0 })
@@ -197,6 +220,7 @@ function M.jump_to(state, pos)
     return
   end
   pos = text.clamp(pos, 1, #state.items)
+  menu.selection_locked = true
   menu.pending_selected_row = pos
   vim.api.nvim_win_set_cursor(menu.list_win, { pos, 0 })
   M.update_preview(state)

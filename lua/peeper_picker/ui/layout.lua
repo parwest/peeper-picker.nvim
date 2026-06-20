@@ -1,10 +1,7 @@
 local M = {}
 
--- Number of rows reserved for the header window.
 M.header_height = 4
 
--- Compute the geometry of the menu given the user's size options and the
--- current editor dimensions. Returns a table of widths/heights.
 function M.menu(opts)
   local available = math.max(40, vim.o.columns - 4)
   local inner_available = math.max(1, available - 3)

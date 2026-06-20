@@ -29,15 +29,13 @@ function M.separator()
   return sep
 end
 
--- normalize() resolves each path through fnamemodify + fs_realpath, both
--- syscalls. It runs in hot paths (filter passes on every streaming batch, and
--- inside the sort comparator), so results are memoized on the raw input string.
--- The cache is keyed by argument and only valid while the filesystem layout is
--- stable, so reset_cache() is called at the start of every lookup.
 local normalize_cache = {}
+local display_uri_cache = {}
 
+-- path cache is only valid while the fs layout holds; cleared at each lookup
 function M.reset_cache()
   normalize_cache = {}
+  display_uri_cache = {}
 end
 
 function M.normalize(path)
@@ -132,7 +130,6 @@ local function too_broad(path)
     return true
   end
   local home = M.normalize(vim.fn.expand("~"))
-  -- reject home dir itself and anything above it (/, /Users, etc.)
   return #comparable(path) <= #comparable(home)
 end
 
@@ -158,14 +155,11 @@ function M.workspace_root(bufnr, current_path)
     return marker
   end
 
+  -- lsp can report a single-file root; prefer the git root for a wider search
   local lsp_root = valid_root(lsp_workspace_root(bufnr, current_path), current_path)
   local git = valid_root(git_root(start), current_path)
   local current_dir = current_path and current_path ~= "" and M.parent(current_path) or nil
 
-  -- Some LSP clients enter single-file mode and report the current file, or its
-  -- containing directory, as root_dir. For text search that is too narrow: in a
-  -- nested file it would only scan sibling files. If a real git root exists, use
-  -- that broader project boundary instead.
   if
     lsp_root
     and git
@@ -185,7 +179,6 @@ function M.workspace_root(bufnr, current_path)
     return git
   end
 
-  -- last resort: the file's own directory, never the broad cwd
   if current_path and current_path ~= "" then
     return M.parent(current_path)
   end
@@ -193,18 +186,25 @@ function M.workspace_root(bufnr, current_path)
 end
 
 function M.display_uri(uri)
+  local cached = display_uri_cache[uri]
+  if cached ~= nil then
+    return cached
+  end
   local path = M.normalize(vim.uri_to_fname(uri))
   local cwd = M.normalize(vim.fn.getcwd())
+  local result = path
   local relative = M.relative_to(path, cwd)
   if relative and relative ~= "" then
-    return relative
+    result = relative
+  else
+    local home = M.normalize(vim.fn.expand("~"))
+    relative = M.relative_to(path, home)
+    if relative and relative ~= "" then
+      result = "~" .. sep .. relative
+    end
   end
-  local home = M.normalize(vim.fn.expand("~"))
-  relative = M.relative_to(path, home)
-  if relative and relative ~= "" then
-    return "~" .. sep .. relative
-  end
-  return path
+  display_uri_cache[uri] = result
+  return result
 end
 
 function M.display_path(path)

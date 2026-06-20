@@ -1,7 +1,5 @@
 local M = {}
 
--- Low-level text and buffer rendering primitives shared across the UI.
-
 function M.display_width(text)
   return vim.fn.strdisplaywidth(text)
 end
@@ -22,8 +20,6 @@ function M.clamp(value, min_value, max_value)
   return math.min(max_value, math.max(min_value, value))
 end
 
--- Slice `lines` to `height`, keeping `target_line` roughly centred. Returns the
--- clipped lines plus the new (re-based) target line, padded with blanks.
 function M.clip_lines(lines, height, target_line)
   local clipped = {}
   local total = #lines
@@ -57,6 +53,15 @@ function M.set_buf_lines(buf, lines)
   end
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+end
+
+function M.set_buf_line_range(buf, first, last, lines)
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+  vim.bo[buf].modifiable = true
+  vim.api.nvim_buf_set_lines(buf, first, last, false, lines)
   vim.bo[buf].modifiable = false
 end
 

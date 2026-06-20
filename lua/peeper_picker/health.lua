@@ -18,9 +18,7 @@ local function has_minimum_nvim()
   return version.patch >= 2
 end
 
--- :checkhealth runs inside its own scratch buffer, which never has LSP clients
--- attached. Fall back to the alternate buffer (the file the user was editing
--- when they invoked :checkhealth) so the LSP checks reflect a real buffer.
+-- checkhealth's own buffer has no lsp; fall back to the alternate buffer
 local function target_buffer()
   local alt = vim.fn.bufnr("#")
   if alt > 0 and vim.api.nvim_buf_is_valid(alt) then

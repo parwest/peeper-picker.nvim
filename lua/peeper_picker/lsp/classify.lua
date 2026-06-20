@@ -1,9 +1,5 @@
 local M = {}
 
--- Symbol-kind classification: given a cursor position, work out what kind of
--- symbol sits under it (function, method, type, parameter, ...) using semantic
--- tokens when available and falling back to treesitter node heuristics.
-
 local role_priority = {
   ["parameter"] = 100,
   ["type parameter"] = 98,

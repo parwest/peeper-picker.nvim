@@ -3,6 +3,7 @@ local M = {}
 local text = require("peeper_picker.ui.text")
 local paths = require("peeper_picker.paths")
 local filters_mod = require("peeper_picker.filters")
+local results = require("peeper_picker.results")
 
 local function source_symbol_label(source)
   local word = source.word and source.word ~= "" and source.word or "symbol"
@@ -10,8 +11,6 @@ local function source_symbol_label(source)
   return ("[%s] %s"):format(kind, word), word, kind
 end
 
--- Byte range of the symbol name within the (clipped) header line, so it can be
--- underlined. Returns nil, nil when it would fall outside the visible area.
 function M.symbol_highlight(source, width)
   local _, word, kind = source_symbol_label(source)
   local left_text = ("Searching for: [%s] %s"):format(kind, word)
@@ -64,6 +63,35 @@ local function filter_summary(state)
   return table.concat(active, "  ")
 end
 
+local function result_breakdown(items, word, capped)
+  if not items or #items == 0 then
+    return ""
+  end
+  local symbol = word and word ~= "" and word or "symbol"
+  local counts, files, file_count = {}, {}, 0
+  for _, item in ipairs(items) do
+    local label = results.display_kind(item.kind)
+    counts[label] = (counts[label] or 0) + 1
+    if item.uri and not files[item.uri] then
+      files[item.uri] = true
+      file_count = file_count + 1
+    end
+  end
+  local parts = {}
+  for _, label in ipairs({ "DEF", "REF", "TXT", "COM" }) do
+    if counts[label] then
+      parts[#parts + 1] = ("%d %s"):format(counts[label], label)
+    end
+  end
+  local plural = file_count == 1 and "" or "s"
+  if capped then
+    parts[#parts + 1] = ("%d+ file%s found with %s"):format(file_count, plural, symbol)
+  else
+    parts[#parts + 1] = ("%d total file%s found with %s"):format(file_count, plural, symbol)
+  end
+  return table.concat(parts, "  ·  ")
+end
+
 function M.render(state, left_width, right_width)
   local source = state.source or {}
 
@@ -71,12 +99,27 @@ function M.render(state, left_width, right_width)
   local lang = source.filetype and source.filetype ~= "" and source.filetype or "unknown"
   local root = source.workspace_root and paths.display_path(source.workspace_root) or vim.fn.getcwd()
   local code = vim.trim(source.line_text or "")
-  local snippet = code ~= "" and ("line %d  %s"):format(source.line or 0, code) or "(source line unavailable)"
+  local snippet = code ~= "" and ("line %d: %s"):format(source.line or 0, code) or "(source line unavailable)"
+
+  local meta = state.result_meta
+  local truncation = ""
+  if meta then
+    if meta.matches then
+      if meta.expandable then
+        truncation = ("press = to rescan: text capped at %d (up to %d)")
+          :format(meta.match_limit or 0, meta.expand_limit or 0)
+      else
+        truncation = ("textual matches capped at %d"):format(meta.match_limit or 0)
+      end
+    elseif meta.files then
+      truncation = ("file scan capped at %d"):format(meta.file_limit or 0)
+    end
+  end
 
   local left_cells = {
     ("Searching for: %s"):format(source_symbol_label(source)),
     ("Filters  %s"):format(filter_summary(state)),
-    "",
+    result_breakdown(state.items, source.word, truncation ~= ""),
   }
   local right_cells = {
     ("%s%s  ·  %s"):format(origin_path(source), pos, lang),
@@ -91,7 +134,11 @@ function M.render(state, left_width, right_width)
     lines[i] = left_cell .. "│" .. text.fit_text(right_cells[i] or "", right_width)
     right_starts[i] = #left_cell + #("│")
   end
-  lines[4] = string.rep("─", left_width) .. "┼" .. string.rep("─", right_width)
+  if truncation ~= "" then
+    lines[4] = text.fit_text(truncation, left_width + right_width + 1)
+  else
+    lines[4] = string.rep("─", left_width) .. "┼" .. string.rep("─", right_width)
+  end
 
   local left_start, left_end = M.symbol_highlight(source, left_width)
   if left_start and left_end then
