@@ -65,7 +65,6 @@ local function treesitter_kind(fname, lnum, col)
   return "ref"
 end
 
--- Returns "com", "ref", or "txt" for a grep match.
 function M.classify(fname, lnum, col, line_text)
   local ts = treesitter_kind(fname, lnum, col)
   if ts then

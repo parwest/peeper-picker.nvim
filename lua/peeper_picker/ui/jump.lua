@@ -45,7 +45,11 @@ local function jump_to_item(state, item, command, reuse_window)
     end
   end
   local bufnr = vim.api.nvim_get_current_buf()
-  vim.api.nvim_win_set_cursor(0, { item.range.start.line + 1, item_byte_col(bufnr, item) })
+  local line_count = math.max(1, vim.api.nvim_buf_line_count(bufnr))
+  local row = math.min(math.max(item.range.start.line + 1, 1), line_count)
+  local line_text = vim.api.nvim_buf_get_lines(bufnr, row - 1, row, false)[1] or ""
+  local col = math.min(math.max(item_byte_col(bufnr, item), 0), #line_text)
+  pcall(vim.api.nvim_win_set_cursor, 0, { row, col })
   vim.cmd("normal! zz")
 end
 

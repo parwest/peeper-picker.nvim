@@ -66,6 +66,7 @@ Picker mappings:
   <C-t>       Open the selected result in a tab
   j / k       Move selection
   f           Open filters
+  =           If text results are capped, rescan with the expanded limit
   q / <Esc>   Close
 
 Filter mappings:
@@ -94,6 +95,7 @@ Defaults: >
     title = " peeper-picker.nvim ",
     jump = "tabedit",
     reuse_window = true,
+    expanded_match_limit = 50000,
     default_keymaps = {
       enabled = false,
       find = "<leader>pp",
@@ -102,6 +104,21 @@ Defaults: >
     ignored_keywords = {},
   }
 <
+The initial workspace text search is capped at 5000 matches. When that cap is
+reached, press = in the picker to rerun the text search with
+`expanded_match_limit`. The default expanded limit is 50,000. LSP definitions,
+declarations, and references remain in the result set, and the expanded search
+continues to use the directory and file-size safeguards.
+
+To change the expanded bound: >
+
+  require("peeper_picker").setup({
+    expanded_match_limit = 75000,
+  })
+<
+The = mapping does nothing unless the initial text search reached its match
+cap.
+
 `jump` controls what <CR> does. It can be an Ex command such as "edit",
 "split", "vsplit", or "tabedit": >
 

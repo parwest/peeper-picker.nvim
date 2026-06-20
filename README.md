@@ -2,17 +2,15 @@
 
 A focused Neovim usage picker for the symbol under your cursor.
 
-peeper-picker is LSP-gated and LSP-first. It only opens when an attached language
-server supports definitions, declarations, or references, and it treats that
-server as the source of truth. But LSP reference results can be incomplete:
-strings, templates, prose, comments, generated edges, project root weirdness, and
-server indexing gaps can all hide places where a symbol still matters.
+Put your cursor on a symbol and peeper-picker shows you every place it lives.
+Definitions, references, and the spots other tools miss: strings, comments,
+templates, prose, and generated files. The whole picture, in one list.
 
-To cover those misses, peeper-picker also runs a streaming workspace text search
-for the same symbol. Literal matches that look like code are included with
-`REF`; matches inside strings, prose files, and comments are kept separate as
-`TXT` and `COM`, so you can see the broader picture without pretending every
-textual match is a real semantic reference.
+It works by combining two sources. Your language server provides the definitions
+and references it knows about, and a fast workspace text search catches everything
+it doesn't. Each result is tagged by where it came from, so you always know what
+you're looking at: `REF` for code, `TXT` for strings and prose, `COM` for
+comments.
 
 ## Screenshots
 
@@ -32,13 +30,13 @@ textual match is a real semantic reference.
 
 - Neovim 0.12.2 or newer
 - An attached LSP client that supports definition, declaration, or references.
-  peeper-picker is LSP-gated: with no supporting client attached it does nothing
-  (and warns), so the workspace text search never runs on its own — it only
-  augments live LSP results.
+  peeper-picker is LSP-gated: with no supporting client it does nothing (and
+  warns). The text search only augments live LSP results; it never runs on its
+  own.
 
 ## Installation
 
-Recommended with lazy.nvim:
+### lazy.nvim
 
 ```lua
 {
@@ -52,23 +50,22 @@ Recommended with lazy.nvim:
 }
 ```
 
-This keeps the mapping in your personal Neovim config, where it belongs, and
-lets lazy.nvim load the plugin from either `:PeeperPicker` or `<leader>pp`.
+This lazy-loads the plugin on either `:PeeperPicker` or `<leader>pp`. Drop the
+`keys` block if you only want the command and no mapping.
 
-If you only want the command and no keymap:
+### Setting your own keybinding
 
-```lua
-{
-  "parwest/peeper-picker.nvim",
-  main = "peeper_picker",
-  cmd = "PeeperPicker",
-  opts = {},
-}
-```
+The `keys` table above is the place to define a custom mapping. Change
+`<leader>pp` to whatever you like, and keep `<cmd>PeeperPicker<cr>` as the
+action. Defining it here doubles as the lazy-load trigger: the plugin only loads
+the first time you press the key.
 
-Or enable the built-in default mapping. It is off by default so the plugin does
-not take over your leader keyspace unless you ask it to. With lazy.nvim, prefer
-the `keys` example above if you want the key itself to lazy-load the plugin.
+You can also map `:PeeperPicker` anywhere in your own config. The command is
+registered up front without loading the picker, so a plain
+`vim.keymap.set("n", "<leader>pp", "<cmd>PeeperPicker<cr>")` works too.
+
+Or use the built-in mapping instead of defining your own. It is off by default
+so the plugin never claims leader keys unless you ask:
 
 ```lua
 {
@@ -83,7 +80,13 @@ the `keys` example above if you want the key itself to lazy-load the plugin.
 }
 ```
 
-With another plugin manager, load the plugin and call setup:
+The built-in mapping is created when the plugin loads, so it cannot lazy-load
+the plugin by keypress on its own. If you want the keypress itself to load
+peeper-picker, prefer the `keys` table above.
+
+### Other plugin managers
+
+Load the plugin and call setup:
 
 ```lua
 require("peeper_picker").setup({
@@ -91,14 +94,9 @@ require("peeper_picker").setup({
 })
 ```
 
-The plugin defines `:PeeperPicker` from `plugin/peeper-picker.lua` without
-loading the full picker. Calling `require("peeper_picker").setup({ ... })`
-applies your options and optional built-in keymap. If you enable the built-in
-default keymap and later change or disable it with another setup call, the
-previous built-in mapping is removed.
-
-If you do not call `setup()`, `:PeeperPicker` still works with the default
-options.
+Setup is optional: `:PeeperPicker` works with default options even if you never
+call it. Calling setup applies your options and optional built-in keymap, and if
+you later change or disable that keymap, the previous mapping is removed.
 
 ## Usage
 
@@ -135,6 +133,7 @@ Picker keys:
 | `j` / `k`     | Move selection (wraps around the ends)                      |
 | `gg` / `G`    | Jump to the first / last result                             |
 | `f`           | Open filters                                                |
+| `=`           | If text results are capped, rescan with the expanded limit  |
 | `q` / `<Esc>` | Close                                                       |
 
 A count works like normal Vim motion: `5j` / `5k` move five rows and stop at the
@@ -170,7 +169,8 @@ Defaults:
   title = " peeper-picker.nvim ",
   jump = "tabedit",
   reuse_window = true,
-  defaultResultFiltering = "all",
+  expanded_match_limit = 50000,
+  default_result_filtering = "all",
   default_keymaps = {
     enabled = false,
     find = "<leader>pp",
@@ -180,14 +180,26 @@ Defaults:
 }
 ```
 
-`defaultResultFiltering` sets which result filter the picker opens with. It
-defaults to `"all"`, so every match including string, prose, and comment
-hits — is visible up front. Set it to `"code"`, `"references"`, or
-`"definitions"` to start narrower:
+The initial workspace text search is capped at 5000 matches. When it hits the
+cap, the picker shows `press = to rescan: text capped at 5000 (up to 50000)`.
+Press `=` to rerun the search with `expanded_match_limit`, keeping your LSP
+definitions, declarations, and references in the results. The `=` action only
+does something when the search was actually capped.
 
 ```lua
 opts = {
-  defaultResultFiltering = "code",
+  expanded_match_limit = 75000,
+}
+```
+
+`default_result_filtering` sets which result filter the picker opens with. It
+defaults to `"all"`, so every match is visible up front, including string,
+prose, and comment hits. Set it to `"code"`, `"references"`, or `"definitions"`
+to start narrower:
+
+```lua
+opts = {
+  default_result_filtering = "code",
 }
 ```
 
@@ -241,21 +253,8 @@ js       show files ending in .js
 !js      hide files ending in .js
 ```
 
-For example, if you run peeper-picker on `signalSeed` from `src/example.js` and
-want mentions outside `src`, open filters, press `p`, type `!src/`, and press
-Enter. Root-level hits such as `scripts/check.js` stay visible while
-`src/module.js` and other nested `src/` matches are hidden.
-
-Extension filtering follows filename suffixes:
-
-```text
-!js       hide core.js and core.test.js
-!test.js  hide core.test.js only
-```
-
-If the same symbol is mentioned in another language, press `t`, type `!.js`,
-and press Enter to hide JavaScript files while keeping matches like
-`tools/report.py`.
+Extension filtering matches filename suffixes, so `!js` hides both `core.js` and
+`core.test.js`, while `!test.js` hides only `core.test.js`.
 
 `jump` controls what `<CR>` does. It can be any Ex command that opens a file,
 such as `"edit"`, `"split"`, `"vsplit"`, or `"tabedit"`.

@@ -13,7 +13,7 @@ local result_filter_aliases = {
 }
 
 function M.default_result_mode()
-  local configured = config.options.defaultResultFiltering
+  local configured = config.options.default_result_filtering
   return result_filter_aliases[tostring(configured or "all"):lower()] or "all"
 end
 
@@ -72,8 +72,6 @@ function M.match(item, filters, source)
     return false
   end
 
-  -- "refs" keeps occurrences; "defs" keeps declarations and definitions.
-  -- Text/comment grep matches count as occurrences when match_mode includes them.
   if filters.kind_mode == "refs" and is_definition then
     return false
   end
@@ -83,8 +81,6 @@ function M.match(item, filters, source)
 
   local item_path = paths.normalize(vim.uri_to_fname(item.uri))
   if filters.scope == "workspace" then
-    -- Trust the LSP's reference set. An LSP-reported root_dir can be a single
-    -- file (e.g. tsserver single-file mode), which would over-filter results.
   elseif filters.scope == "file" then
     if not source.path or item_path ~= source.path then
       return false

@@ -47,7 +47,7 @@ local function cursor_on_keyword(bufnr, cursor, word)
   if ntype:find("keyword", 1, true) then
     return true
   end
-  -- many grammars give keywords a node type equal to the keyword text itself
+  -- some grammars name a keyword node after the keyword text itself
   if word and word ~= "" and ntype == word then
     return true
   end
@@ -97,6 +97,8 @@ function M.find()
   local word = source_symbol.name and source_symbol.name ~= "" and source_symbol.name or cursor_word
   state.opts = config.options
   state.filters = filters.defaults()
+  state.result_meta = nil
+  state.expand_results = nil
   state.source = {
     path = current_path,
     dir = current_path and paths.normalize(vim.fn.fnamemodify(current_path, ":p:h")) or nil,
@@ -120,14 +122,10 @@ function M.find()
     return lookup_id == state.lookup_id and menu and menu.lookup_id == lookup_id
   end
 
-  -- Two sources, merged: authoritative LSP results (decl/def/ref) plus textual
-  -- matches from a streaming workspace grep. A grep match at a location the LSP
-  -- already reported is dropped; the rest are flagged "txt" so the user sees
-  -- every literal occurrence while still knowing which the LSP confirmed as real
-  -- references. This is the honest answer to LSP incompleteness: present both,
-  -- let the eye separate confirmed refs from extra textual hits.
+  -- lsp results win; grep adds textual hits it missed, deduped by location
   local lsp_items, grep_items = {}, {}
   local lsp_done, grep_done = false, false
+  local grep_scan_id = 0
 
   local function rebuild()
     if not active_lookup() then
@@ -163,25 +161,62 @@ function M.find()
   end)
 
   if word and word ~= "" then
-    grep.collect({
-      root = state.source.workspace_root,
-      word = word,
-      is_cancelled = function()
-        return not active_lookup()
-      end,
-    }, function(batch)
-      for _, item in ipairs(batch) do
-        local fname = vim.uri_to_fname(item.uri)
-        local lnum = item.range.start.line + 1
-        local col = item.range.start.character + 1
-        item.kind = grep_classify.classify(fname, lnum, col, item.text)
-        grep_items[#grep_items + 1] = item
+    local function expanded_limit()
+      local value = tonumber(state.opts.expanded_match_limit) or config.defaults.expanded_match_limit
+      return math.max(1, math.floor(value))
+    end
+    local function run_grep(match_limit, expanded)
+      grep_scan_id = grep_scan_id + 1
+      local scan_id = grep_scan_id
+      grep_items = {}
+      grep_done = false
+
+      grep.collect({
+        root = state.source.workspace_root,
+        word = word,
+        match_limit = match_limit,
+        is_cancelled = function()
+          return not active_lookup() or scan_id ~= grep_scan_id
+        end,
+      }, function(batch)
+        if scan_id ~= grep_scan_id or not active_lookup() then
+          return
+        end
+        for _, item in ipairs(batch) do
+          local fname = vim.uri_to_fname(item.uri)
+          local lnum = item.range.start.line + 1
+          local col = item.range.start.character + 1
+          item.kind = grep_classify.classify(fname, lnum, col, item.text)
+          grep_items[#grep_items + 1] = item
+        end
+        rebuild()
+      end, function(meta)
+        if scan_id ~= grep_scan_id or not active_lookup() then
+          return
+        end
+        meta = meta or {}
+        local expand_limit = expanded_limit()
+        meta.expanded = expanded
+        meta.expand_limit = expand_limit
+        meta.expandable = not expanded
+          and meta.matches == true
+          and expand_limit > (meta.match_limit or 0)
+        grep_done = true
+        state.result_meta = meta
+        rebuild()
+      end)
+    end
+
+    state.expand_results = function()
+      local meta = state.result_meta
+      if not active_lookup() or not meta or not meta.expandable then
+        return
       end
-      rebuild()
-    end, function()
-      grep_done = true
-      rebuild()
-    end)
+      state.result_meta = nil
+      run_grep(expanded_limit(), true)
+    end
+
+    run_grep(nil, false)
   else
     grep_done = true
   end

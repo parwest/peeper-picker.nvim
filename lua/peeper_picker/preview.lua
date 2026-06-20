@@ -3,8 +3,6 @@ local M = {}
 local paths = require("peeper_picker.paths")
 
 local max_cached_lines = 20000
--- Cap the number of cached entries so a long-lived session browsing many
--- files/lines cannot grow the caches without bound.
 local max_cached_files = 64
 local max_cached_line_entries = 4096
 

@@ -9,18 +9,13 @@ M.defaults = {
   title = " peeper-picker.nvim ",
   jump = "tabedit",
   reuse_window = true,
-  defaultResultFiltering = "all",
+  expanded_match_limit = 50000,
+  default_result_filtering = "all",
   default_keymaps = {
     enabled = false,
     find = "<leader>pp",
   },
-  -- Extra directory names to skip during the text-search walk. These are ADDED
-  -- to the always-ignored built-in set (.git, node_modules, dist, ...), so the
-  -- defaults keep working without any configuration.
   ignored_dirs = {},
-  -- Extra cursor words that should not open the picker. Built-in language
-  -- keyword fallbacks are always present for common filetypes; this option is
-  -- purely additive.
   ignored_keywords = {},
 }
 

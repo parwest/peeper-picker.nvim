@@ -1,15 +1,10 @@
 local M = {}
 
--- Highlight group definitions and the namespaced highlight application used by
--- the result list and header.
-
 local results_ns = vim.api.nvim_create_namespace("peeper-picker-results")
 local selected_ns = vim.api.nvim_create_namespace("peeper-picker-selected")
 local header_symbol_ns = vim.api.nvim_create_namespace("peeper-picker-header-symbol")
 
--- nvim_buf_add_highlight was deprecated in 0.11; this is the extmark equivalent.
--- A negative/nil end_col means "to end of line", expressed as end_row+1/end_col 0.
--- strict=false keeps a start col past EOL from raising.
+-- extmark replacement for the deprecated nvim_buf_add_highlight
 local function add_hl(buf, ns, group, row, col_start, col_end)
   local opts = { hl_group = group, strict = false }
   if col_end == nil or col_end < 0 then
@@ -25,7 +20,7 @@ M.results_ns = results_ns
 
 function M.ensure()
   vim.api.nvim_set_hl(0, "PeeperPickerDefinition", { link = "Type", default = true })
-  vim.api.nvim_set_hl(0, "PeeperPickerReference", { link = "Comment", default = true })
+  vim.api.nvim_set_hl(0, "PeeperPickerReference", { link = "Function", default = true })
   vim.api.nvim_set_hl(0, "PeeperPickerTextMatch", { link = "NonText", default = true })
   vim.api.nvim_set_hl(0, "PeeperPickerCommentMatch", { link = "Comment", default = true })
   vim.api.nvim_set_hl(0, "PeeperPickerPath", { link = "Directory", default = true })

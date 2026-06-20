@@ -4,7 +4,6 @@ local text = require("peeper_picker.ui.text")
 local preview = require("peeper_picker.preview")
 local results = require("peeper_picker.results")
 
--- How far above/below the selection to eagerly read source lines for.
 local eager_text_radius = 25
 
 function M.item_from_cursor(state)
@@ -46,9 +45,16 @@ function M.hydrate(state, selected_idx)
   end
   local first = math.max(1, selected_idx - eager_text_radius)
   local last = math.min(#state.items, selected_idx + eager_text_radius)
+  local changed_first, changed_last
   for i = first, last do
-    state.rendered_left_lines[i] = render_left_line(state, i, true)
+    local line = render_left_line(state, i, true)
+    if line ~= state.rendered_left_lines[i] then
+      state.rendered_left_lines[i] = line
+      changed_first = changed_first or i
+      changed_last = i
+    end
   end
+  return changed_first, changed_last
 end
 
 function M.lines(state, menu)
@@ -61,6 +67,15 @@ function M.lines(state, menu)
   local width = menu.list_width or 32
   for i in ipairs(state.items) do
     lines[i] = text.fit_text(state.rendered_left_lines[i] or render_left_line(state, i, false), width)
+  end
+  return lines
+end
+
+function M.fit_range(state, menu, first, last)
+  local width = menu.list_width or 32
+  local lines = {}
+  for i = first, last do
+    lines[#lines + 1] = text.fit_text(state.rendered_left_lines[i] or render_left_line(state, i, false), width)
   end
   return lines
 end
