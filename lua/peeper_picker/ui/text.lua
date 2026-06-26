@@ -13,18 +13,41 @@ function M.fit_text(text, width)
   if width <= 1 then
     return string.rep(" ", math.max(width, 0))
   end
-  return vim.fn.strcharpart(text, 0, width - 1) .. "…"
+  local target = width - 1
+  local low, high = 0, vim.fn.strchars(text)
+  while low < high do
+    local mid = math.floor((low + high + 1) / 2)
+    if M.display_width(vim.fn.strcharpart(text, 0, mid)) <= target then
+      low = mid
+    else
+      high = mid - 1
+    end
+  end
+  local fitted = vim.fn.strcharpart(text, 0, low) .. "…"
+  return fitted .. string.rep(" ", width - M.display_width(fitted))
 end
 
 function M.clamp(value, min_value, max_value)
   return math.min(max_value, math.max(min_value, value))
 end
 
+function M.center_text(text, width, reserved)
+  text = text or ""
+  local content = M.display_width(text)
+  if content >= width then
+    return M.fit_text(text, width)
+  end
+  local effective = math.min(math.max(content, reserved or 0), width)
+  local left = math.floor((width - effective) / 2)
+  local right = math.max(0, width - content - left)
+  return string.rep(" ", math.max(0, left)) .. text .. string.rep(" ", right)
+end
+
 function M.clip_lines(lines, height, target_line)
   local clipped = {}
   local total = #lines
   if height <= 0 then
-    return clipped, nil
+    return clipped, nil, 1, 0
   end
 
   local start = 1
@@ -36,6 +59,7 @@ function M.clip_lines(lines, height, target_line)
   for i = start, math.min(total, start + height - 1) do
     clipped[#clipped + 1] = lines[i]
   end
+  local content_count = #clipped
   while #clipped < height do
     clipped[#clipped + 1] = ""
   end
@@ -44,7 +68,7 @@ function M.clip_lines(lines, height, target_line)
     target_line = M.clamp(target_line - start + 1, 1, height)
   end
 
-  return clipped, target_line
+  return clipped, target_line, start, content_count
 end
 
 function M.set_buf_lines(buf, lines)

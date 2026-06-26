@@ -2,11 +2,38 @@ local M = {}
 
 local text = require("peeper_picker.ui.text")
 local keymap = require("peeper_picker.ui.keymap")
+local layout = require("peeper_picker.ui.layout")
 local view = require("peeper_picker.ui.view")
 local lifecycle = require("peeper_picker.ui.lifecycle")
 local filters_mod = require("peeper_picker.filters")
-local paths = require("peeper_picker.paths")
 local highlight = require("peeper_picker.ui.highlight")
+local floating = require("peeper_picker.ui.floating")
+
+local min_panel_width = 30
+local min_panel_height = 8
+
+local function panel_geometry(state)
+  local columns = math.max(1, vim.o.columns)
+  local lines = math.max(1, vim.o.lines)
+  local chrome = layout.has_border(state.opts and state.opts.border) and 2 or 0
+  local available_width = columns - (layout.margin(columns) * 2) - chrome
+  local available_height = lines - (layout.margin(lines) * 2) - chrome
+  if available_width < min_panel_width or available_height < min_panel_height then
+    return nil,
+      ("peeper-picker.nvim: Neovim window is too small for filters (%dx%d). Try a larger window."):format(
+        columns,
+        lines
+      )
+  end
+  local width = math.min(84, available_width)
+  local height = math.min(28, available_height)
+  return {
+    width = width,
+    height = height,
+    row = math.max(0, math.floor((lines - height - chrome) / 2)),
+    col = math.max(0, math.floor((columns - width - chrome) / 2)),
+  }
+end
 
 local function render_columns(left_lines, right_lines, left_width, right_width)
   local total_rows = math.max(#left_lines, #right_lines)
@@ -31,13 +58,14 @@ local function render_filter_menu(state)
     filter_line("scope", filters_mod.scope_label(state.filters.scope), state.filters.scope ~= "workspace"),
     "  press s to change scope",
     "  choices: file / dir / workspace",
-    "  " .. filters_mod.scope_hint(state.source),
+    "  " .. filters_mod.scope_hint(state.source, state.filters.scope),
     "",
-    filter_line("results", filters_mod.result_label(state.filters), filters_mod.result_mode(state.filters) ~= filters_mod.default_result_mode()),
+    filter_line("results", filters_mod.result_mode(state.filters), filters_mod.result_mode(state.filters) ~= filters_mod.default_result_mode()),
     "  press 1 to show code",
     "  press 2 to show references",
     "  press 3 to show definitions",
-    "  press 4 to show all",
+    "  press 4 to show text",
+    "  press 5 to show all",
     "  default: " .. filters_mod.default_result_mode(),
     "",
     filter_line("path", filters_mod.path_label(state.filters.path), state.filters.path ~= ""),
@@ -60,10 +88,10 @@ local function render_filter_menu(state)
   local lines = render_columns(left_lines, right_lines, left_width, 28)
   text.set_buf_lines(filter_menu.buf, lines)
   vim.api.nvim_buf_clear_namespace(filter_menu.buf, -1, 0, -1)
-  for _, row in ipairs({ 2, 7, 14, 17 }) do
-    highlight.filter_control(filter_menu.buf, row, left_width)
+  for _, row in ipairs({ 2, 7, 15, 18 }) do
+    highlight.filter_control(filter_menu.buf, row)
   end
-  filter_menu.focus_rows = { 3, 8, 15, 18 }
+  filter_menu.focus_rows = { 3, 8, 16, 19 }
   filter_menu.focus_fields = { "scope", "results", "path", "extension" }
   filter_menu.focus_index = math.min(#filter_menu.focus_rows, math.max(1, filter_menu.focus_index or 1))
   vim.api.nvim_win_set_cursor(filter_menu.win, { filter_menu.focus_rows[filter_menu.focus_index], 0 })
@@ -71,46 +99,40 @@ end
 
 function M.open(state)
   local menu = state.menu
-  if not menu or not vim.api.nvim_win_is_valid(menu.win) then
+  if not menu or not vim.api.nvim_win_is_valid(menu.list_win) then
     return
   end
   lifecycle.close_filter_menu(state)
 
-  local width = math.max(48, math.min(84, vim.o.columns - 4))
-  local height = math.max(18, math.min(28, vim.o.lines - 4))
-  local buf = vim.api.nvim_create_buf(false, true)
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = "editor",
-    width = width,
-    height = height,
-    row = math.max(0, math.floor((vim.o.lines - height) / 2)),
-    col = math.max(0, math.floor((vim.o.columns - width) / 2)),
-    style = "minimal",
+  local geometry, err = panel_geometry(state)
+  if not geometry then
+    vim.notify(err, vim.log.levels.WARN)
+    return
+  end
+  local buf, win = floating.open({
+    name = "peeper-picker://filters",
+    filetype = "peeper-picker-filter",
+    width = geometry.width,
+    height = geometry.height,
+    row = geometry.row,
+    col = geometry.col,
     border = state.opts.border,
     title = " filters ",
-    title_pos = "center",
     zindex = 60,
+    win_options = {
+      cursorline = true,
+      wrap = false,
+    },
   })
 
-  vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].buftype = "nofile"
-  vim.bo[buf].filetype = "peeper-picker-filter"
-  vim.bo[buf].swapfile = false
-  vim.wo[win].cursorline = true
-  vim.wo[win].wrap = false
-
-  state.filter_menu = { buf = buf, win = win, width = width }
+  state.filter_menu = { buf = buf, win = win, width = geometry.width, height = geometry.height }
   state.render_filter_menu = function()
     render_filter_menu(state)
   end
 
-  local function refresh()
-    render_filter_menu(state)
-  end
   local function set_result_mode(mode)
     filters_mod.set_result_mode(state.filters, mode)
     view.apply_filters(state)
-    refresh()
   end
   local function cycle_scope()
     local order = { "file", "dir", "workspace" }
@@ -123,7 +145,6 @@ function M.open(state)
     end
     state.filters.scope = order[(current % #order) + 1]
     view.apply_filters(state)
-    refresh()
   end
   local function close_prompt(cancelled)
     local prompt = state.filter_prompt
@@ -166,34 +187,29 @@ function M.open(state)
     end
     local input_row = #prompt_lines
     local height = math.max(3, #prompt_lines + 1)
-    local buf_prompt = vim.api.nvim_create_buf(false, true)
-    local win_prompt = vim.api.nvim_open_win(buf_prompt, true, {
-      relative = "editor",
+    local buf_prompt, win_prompt = floating.open({
+      name = ("peeper-picker://filters/%s"):format(field),
+      filetype = "peeper-picker-filter-prompt",
       width = width,
       height = height,
       row = math.max(0, math.floor((vim.o.lines - height) / 2)),
       col = math.max(0, math.floor((vim.o.columns - width) / 2)),
-      style = "minimal",
       border = state.opts.border,
       title = prompt,
-      title_pos = "center",
       zindex = 70,
+      modifiable = true,
+      win_options = {
+        wrap = false,
+      },
     })
-    vim.bo[buf_prompt].bufhidden = "wipe"
-    vim.bo[buf_prompt].buftype = "nofile"
-    vim.bo[buf_prompt].swapfile = false
-    vim.bo[buf_prompt].modifiable = true
-    vim.bo[buf_prompt].filetype = "peeper-picker-filter-prompt"
-    vim.wo[win_prompt].wrap = false
     vim.api.nvim_buf_set_lines(buf_prompt, 0, -1, false, prompt_lines)
     vim.api.nvim_win_set_cursor(win_prompt, { input_row, #current })
-    state.filter_prompt = { buf = buf_prompt, win = win_prompt, field = field }
+    state.filter_prompt = { win = win_prompt }
     local function accept()
       local line = vim.api.nvim_buf_get_lines(buf_prompt, input_row - 1, input_row, false)[1] or ""
       close_prompt(false)
       state.filters[field] = vim.trim(line):lower()
       view.apply_filters(state)
-      refresh()
     end
     local function cancel()
       close_prompt(true)
@@ -207,7 +223,6 @@ function M.open(state)
   local function reset_all()
     state.filters = filters_mod.defaults()
     view.apply_filters(state)
-    refresh()
   end
   local function reset_focused_field()
     local focus_index = state.filter_menu and state.filter_menu.focus_index or 1
@@ -222,7 +237,6 @@ function M.open(state)
       return
     end
     view.apply_filters(state)
-    refresh()
   end
   local function move_focus(delta)
     local rows = state.filter_menu and state.filter_menu.focus_rows
@@ -242,7 +256,8 @@ function M.open(state)
   filter_key("1", function() set_result_mode("code") end)
   filter_key("2", function() set_result_mode("refs") end)
   filter_key("3", function() set_result_mode("defs") end)
-  filter_key("4", function() set_result_mode("all") end)
+  filter_key("4", function() set_result_mode("text") end)
+  filter_key("5", function() set_result_mode("all") end)
   filter_key("s", cycle_scope)
   filter_key("p", function() prompt_field("path", "Path filter") end)
   filter_key("t", function() prompt_field("extension", "Extension filter") end)
@@ -258,6 +273,35 @@ function M.open(state)
 
   render_filter_menu(state)
   vim.cmd("stopinsert")
+end
+
+function M.reflow(state)
+  local filter_menu = state.filter_menu
+  if not filter_menu or not filter_menu.win or not vim.api.nvim_win_is_valid(filter_menu.win) then
+    return
+  end
+  local geometry, err = panel_geometry(state)
+  if not geometry then
+    vim.notify(err, vim.log.levels.WARN)
+    lifecycle.close_filter_menu(state)
+    return
+  end
+  floating.reconfigure(filter_menu.win, {
+    width = geometry.width,
+    height = geometry.height,
+    row = geometry.row,
+    col = geometry.col,
+    border = state.opts.border,
+    title = " filters ",
+    zindex = 60,
+    win_options = {
+      cursorline = true,
+      wrap = false,
+    },
+  })
+  filter_menu.width = geometry.width
+  filter_menu.height = geometry.height
+  render_filter_menu(state)
 end
 
 return M

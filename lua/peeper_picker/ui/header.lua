@@ -50,7 +50,7 @@ local function origin_path(source)
 end
 
 local function filter_summary(state)
-  local active = { "results=" .. filters_mod.result_label(state.filters) }
+  local active = { "results=" .. filters_mod.result_mode(state.filters) }
   if state.filters.scope ~= "workspace" then
     table.insert(active, "scope=" .. filters_mod.scope_label(state.filters.scope))
   end
@@ -63,10 +63,42 @@ local function filter_summary(state)
   return table.concat(active, "  ")
 end
 
-local function result_breakdown(items, word, capped)
+local function scope_path(path)
+  if not path or path == "" then
+    return "[No Name]"
+  end
+  return paths.display_path(path)
+end
+
+local function scope_context(state)
+  local source = state.source or {}
+  local scope = state.filters.scope or "workspace"
+  local label, target
+  if scope == "file" then
+    label = "File"
+    target = source.path and paths.display_path_from_root(source.path, source.workspace_root) or "[No Name]"
+  elseif scope == "dir" then
+    label, target = "Directory", scope_path(source.dir)
+  else
+    label = "Workspace"
+    target = scope_path(source.workspace_root or vim.fn.getcwd())
+  end
+
+  local parts = { ("%s  %s"):format(label, target) }
+  if state.filters.path ~= "" then
+    parts[#parts + 1] = "path " .. filters_mod.path_label(state.filters.path)
+  end
+  if state.filters.extension ~= "" then
+    parts[#parts + 1] = "ext " .. filters_mod.extension_label(state.filters.extension)
+  end
+  return table.concat(parts, "  ·  ")
+end
+
+local function result_breakdown(items, word, meta)
   if not items or #items == 0 then
     return ""
   end
+  local capped = meta and (meta.matches or meta.files) and true or false
   local symbol = word and word ~= "" and word or "symbol"
   local counts, files, file_count = {}, {}, 0
   for _, item in ipairs(items) do
@@ -78,18 +110,33 @@ local function result_breakdown(items, word, capped)
     end
   end
   local parts = {}
-  for _, label in ipairs({ "DEF", "REF", "TXT", "COM" }) do
+  for _, label in ipairs({ "DEF", "DECL", "REF", "TXT", "COM" }) do
     if counts[label] then
       parts[#parts + 1] = ("%d %s"):format(counts[label], label)
     end
   end
   local plural = file_count == 1 and "" or "s"
+  parts[#parts + 1] = ("%d total file%s found with %s"):format(file_count, plural, symbol)
   if capped then
-    parts[#parts + 1] = ("%d+ file%s found with %s"):format(file_count, plural, symbol)
-  else
-    parts[#parts + 1] = ("%d total file%s found with %s"):format(file_count, plural, symbol)
+    local limit = meta.match_limit and tostring(meta.match_limit) or "initial"
+    parts[#parts + 1] = "text cap " .. limit .. " reached"
   end
   return table.concat(parts, "  ·  ")
+end
+
+local function action_highlight(help_line, action)
+  if not action or action == "" then
+    return nil
+  end
+  local start_col = help_line:find(action, 1, true)
+    or help_line:find("PRESS =", 1, true)
+    or help_line:find("EXPANDING", 1, true)
+  if not start_col then
+    return nil
+  end
+  local separator = help_line:find(" · ", start_col, true)
+  local end_col = separator and (separator - 1) or #(help_line:gsub("%s+$", ""))
+  return { row = 0, start_col = start_col - 1, end_col = end_col, group = "PeeperPickerExpandAction" }
 end
 
 function M.render(state, left_width, right_width)
@@ -97,34 +144,48 @@ function M.render(state, left_width, right_width)
 
   local pos = source.line and source.character and (":%d:%d"):format(source.line, source.character) or ""
   local lang = source.filetype and source.filetype ~= "" and source.filetype or "unknown"
-  local root = source.workspace_root and paths.display_path(source.workspace_root) or vim.fn.getcwd()
   local code = vim.trim(source.line_text or "")
   local snippet = code ~= "" and ("line %d: %s"):format(source.line or 0, code) or "(source line unavailable)"
 
   local meta = state.result_meta
-  local truncation = ""
-  if meta then
-    if meta.matches then
-      if meta.expandable then
-        truncation = ("press = to rescan: text capped at %d (up to %d)")
-          :format(meta.match_limit or 0, meta.expand_limit or 0)
-      else
-        truncation = ("textual matches capped at %d"):format(meta.match_limit or 0)
-      end
-    elseif meta.files then
-      truncation = ("file scan capped at %d"):format(meta.file_limit or 0)
-    end
+  local capped = meta and (meta.matches or meta.files) and true or false
+
+  local summary = #state.items > 0 and ("%d%s results"):format(#state.items, capped and "+" or "") or "no results"
+  local controls = {}
+  local action
+  if meta and meta.expanding then
+    action = "EXPANDING TEXT RESULTS..."
+    controls[#controls + 1] = action
+  elseif meta and meta.expandable then
+    local limit = meta.match_limit and tostring(meta.match_limit) or tostring(#state.items)
+    action = ("PRESS = TO EXPAND %s+ CAPPED RESULTS"):format(limit)
+    controls[#controls + 1] = action
+  end
+  vim.list_extend(controls, {
+    "j/k rows",
+    "J/K file groups",
+    "<CR> open/fold",
+    "f filters",
+    "? keys",
+    "q close",
+    summary,
+  })
+  controls = table.concat(controls, " · ")
+  -- reserve room for up to a 4-digit count so centering stays put as it grows
+  local controls_reserved = #controls
+  if #state.items > 0 then
+    controls_reserved = controls_reserved + math.max(0, 4 - #tostring(#state.items))
   end
 
   local left_cells = {
     ("Searching for: %s"):format(source_symbol_label(source)),
     ("Filters  %s"):format(filter_summary(state)),
-    result_breakdown(state.items, source.word, truncation ~= ""),
+    result_breakdown(state.items, source.word, meta),
   }
   local right_cells = {
     ("%s%s  ·  %s"):format(origin_path(source), pos, lang),
     snippet,
-    ("Workspace  %s"):format(root),
+    scope_context(state),
   }
 
   local lines, highlights = {}, {}
@@ -133,11 +194,6 @@ function M.render(state, left_width, right_width)
     local left_cell = text.fit_text(left_cells[i] or "", left_width)
     lines[i] = left_cell .. "│" .. text.fit_text(right_cells[i] or "", right_width)
     right_starts[i] = #left_cell + #("│")
-  end
-  if truncation ~= "" then
-    lines[4] = text.fit_text(truncation, left_width + right_width + 1)
-  else
-    lines[4] = string.rep("─", left_width) .. "┼" .. string.rep("─", right_width)
   end
 
   local left_start, left_end = M.symbol_highlight(source, left_width)
@@ -152,7 +208,15 @@ function M.render(state, left_width, right_width)
     end
   end
 
-  return { lines = lines, highlights = highlights }
+  local help_line = text.center_text(controls, left_width + right_width + 1, controls_reserved)
+  local help_action = action_highlight(help_line, action)
+
+  return {
+    lines = lines,
+    highlights = highlights,
+    help_line = help_line,
+    help_highlights = help_action and { help_action } or {},
+  }
 end
 
 return M

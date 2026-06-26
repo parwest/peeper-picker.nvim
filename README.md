@@ -21,18 +21,19 @@ comments.
 </p>
 
 <p align="center">
-  <img src="assets/peeper-filter.png" alt="Peeper Picker filter view" width="900">
+  <img src="assets/peeper-filter-menu.png" alt="Peeper Picker filter view" width="900">
   <br>
   <sub>Filter controls for scope, result type, path, and extension</sub>
 </p>
 
 ## Requirements
 
-- Neovim 0.12.2 or newer
-- An attached LSP client that supports definition, declaration, or references.
-  peeper-picker is LSP-gated: with no supporting client it does nothing (and
-  warns). The text search only augments live LSP results; it never runs on its
-  own.
+- Neovim 0.11 or newer
+- An attached LSP client that supports definition, declaration, or references
+
+peeper-picker is LSP-gated: with no supporting client it does nothing (and
+warns). The text search only augments live LSP results; it never runs on its
+own.
 
 ## Installation
 
@@ -57,15 +58,16 @@ This lazy-loads the plugin on either `:PeeperPicker` or `<leader>pp`. Drop the
 
 The `keys` table above is the place to define a custom mapping. Change
 `<leader>pp` to whatever you like, and keep `<cmd>PeeperPicker<cr>` as the
-action. Defining it here doubles as the lazy-load trigger: the plugin only loads
-the first time you press the key.
+action. Defining it here doubles as the lazy-load trigger: lazy installs the
+mapping up front and loads the plugin the first time you press the key.
 
-You can also map `:PeeperPicker` anywhere in your own config. The command is
-registered up front without loading the picker, so a plain
-`vim.keymap.set("n", "<leader>pp", "<cmd>PeeperPicker<cr>")` works too.
+You can also map `:PeeperPicker` yourself. The command is registered up front
+without loading the picker, so a plain
+`vim.keymap.set("n", "<leader>pp", "<cmd>PeeperPicker<cr>")` works anywhere in
+your config.
 
-Or use the built-in mapping instead of defining your own. It is off by default
-so the plugin never claims leader keys unless you ask:
+Or let the plugin create the mapping for you. It is off by default so the
+plugin never claims leader keys unless you ask:
 
 ```lua
 {
@@ -80,9 +82,15 @@ so the plugin never claims leader keys unless you ask:
 }
 ```
 
-The built-in mapping is created when the plugin loads, so it cannot lazy-load
-the plugin by keypress on its own. If you want the keypress itself to load
-peeper-picker, prefer the `keys` table above.
+Because this block has no `keys`, `cmd`, or `event`, lazy loads the plugin at
+startup, so the mapping is live from the first session and `<leader>pp` works
+right away. The upside over a hand-written mapping is that the plugin owns it:
+change `find` or set `enabled = false` and the old mapping is removed for you.
+
+The one thing it can't do is lazy-load on the keypress itself. The mapping only
+exists after the plugin has loaded, so if you instead defer loading with `cmd`
+or `event`, the key does nothing until something else loads peeper-picker first.
+For keypress lazy-loading, use the `keys` table above.
 
 ### Other plugin managers
 
@@ -110,34 +118,60 @@ For Neovim help, run `:help peeper-picker`.
 
 Each result is tagged by where it came from:
 
-| Tag   | Meaning                                                         |
-| ----- | --------------------------------------------------------------- |
-| `DEF` | A definition or declaration confirmed by the LSP                |
-| `REF` | A code occurrence, either LSP-confirmed or found by text search |
-| `TXT` | A textual match inside a string, template, or prose file        |
-| `COM` | A textual match inside a comment                                |
+| Tag    | Meaning                                                         |
+| ------ | --------------------------------------------------------------- |
+| `DEF`  | A definition confirmed by the LSP                               |
+| `DECL` | A declaration confirmed by the LSP                              |
+| `REF`  | A code occurrence, either LSP-confirmed or found by text search |
+| `TXT`  | A textual match inside a string, template, or prose file        |
+| `COM`  | A textual match inside a comment                                |
 
-`DEF` comes from the language server. `REF` includes LSP references plus
-code-looking text matches that the language server did not report. `TXT` and
-`COM` come from the workspace text search and only appear when the language
+`DEF` and `DECL` come from separate language-server methods. When both methods
+report the same location, `DEF` takes precedence. `REF` includes LSP references
+plus code-looking text matches that the language server did not report. `TXT`
+and `COM` come from the workspace text search and only appear when the language
 server didn't already report that location, so you never see the same hit twice.
+
+For source files, peeper-picker parses matching files with Tree-sitter when a
+parser for their filetype is available, including files that are not open in a
+buffer. Without a parser, prose files and full-line comments still use fallback
+classification, while ambiguous strings and inline comments may appear as `REF`.
+
+### Grouping and folding
+
+Results are grouped by file. The primary definition file appears first; the
+remaining files follow normal result order. The file where the picker was opened
+and the exact source occurrence are marked with `●`. Select a file header and
+press `<CR>` to collapse or expand it.
 
 Picker keys:
 
-| Key           | Action                                                      |
-| ------------- | ----------------------------------------------------------- |
-| `<CR>`        | Open the selected result with your configured jump behavior |
-| `<C-v>`       | Open the selected result in a new vertical split            |
-| `<C-x>`       | Open the selected result in a new horizontal split          |
-| `<C-t>`       | Open the selected result in a new tab                       |
-| `j` / `k`     | Move selection (wraps around the ends)                      |
-| `gg` / `G`    | Jump to the first / last result                             |
-| `f`           | Open filters                                                |
-| `=`           | If text results are capped, rescan with the expanded limit  |
-| `q` / `<Esc>` | Close                                                       |
+| Key              | Action                                                               |
+| ---------------- | -------------------------------------------------------------------- |
+| `<CR>`           | Open a result, or collapse/expand a selected file group              |
+| `J` / `K`        | Jump to the next / previous file group                               |
+| `zo` / `zc` / `za` | Expand / collapse / toggle the current file group                  |
+| `zM` / `zR`      | Collapse all / expand all file groups                                |
+| `<C-v>`          | Open the selected result in a new vertical split                     |
+| `<C-x>`          | Open the selected result in a new horizontal split                   |
+| `<C-t>`          | Open the selected result in a new tab                                |
+| `j` / `k`        | Move selection (wraps around the ends)                               |
+| `gg` / `G`       | Jump to the first / last visible row                                 |
+| `f`              | Open filters                                                         |
+| `?`              | Open key help                                                        |
+| `=`              | If text results are capped, rescan with the expanded limit           |
+| `q` / `<Esc>`    | Close                                                                |
 
 A count works like normal Vim motion: `5j` / `5k` move five rows and stop at the
 end if there are fewer rows left.
+
+### Expanding capped text results
+
+The initial workspace text search stops after 5000 text matches to keep the
+picker responsive. If that cap is reached, the help bar shows `= expand`. Press
+`=` to rerun only the text search with `expanded_match_limit`; LSP definitions,
+declarations, and references stay in the result set. If the cap was not reached,
+`=` does nothing.
 
 Filter keys:
 
@@ -149,11 +183,23 @@ _you do not need to navigate your cursor to the filtering options to apply chang
 | `1` | Show code — definitions, references, and code occurrences (hides `TXT` and `COM`) |
 | `2` | Show references — occurrences only, no definitions or declarations                |
 | `3` | Show definitions — declarations and definitions only                              |
-| `4` | Show all — everything, including string, prose, and comment matches               |
+| `4` | Show text — string, prose, and comment matches only (`TXT` and `COM`)             |
+| `5` | Show all — everything, including string, prose, and comment matches               |
 | `p` | Filter by path text. Start with `!` to exclude matching paths                     |
 | `t` | Filter by extension. Start with `!` to exclude matching extensions                |
 | `r` | Reset the focused filter                                                          |
 | `x` | Reset all filters                                                                 |
+
+### Key help
+
+Press `?` in the picker for a built-in cheatsheet of every key, so you never
+have to leave the picker to look one up.
+
+<p align="center">
+  <img src="assets/peeper-help.png" alt="Peeper Picker key help overlay" width="900">
+  <br>
+  <sub>Built-in key help (<code>?</code>)</sub>
+</p>
 
 ## Configuration
 
@@ -170,6 +216,8 @@ Defaults:
   jump = "tabedit",
   reuse_window = true,
   expanded_match_limit = 50000,
+  scan_files_per_tick = 64,
+  classify_files_per_tick = 8,
   default_result_filtering = "all",
   default_keymaps = {
     enabled = false,
@@ -180,11 +228,16 @@ Defaults:
 }
 ```
 
+`scan_files_per_tick` limits how many queued files the built-in text search
+opens per scheduler tick. `classify_files_per_tick` limits how many matching
+files are classified with Tree-sitter per tick, keeping large scans responsive
+without adding an external search dependency.
+
 The initial workspace text search is capped at 5000 matches. When it hits the
-cap, the picker shows `press = to rescan: text capped at 5000 (up to 50000)`.
-Press `=` to rerun the search with `expanded_match_limit`, keeping your LSP
-definitions, declarations, and references in the results. The `=` action only
-does something when the search was actually capped.
+cap, the picker shows `= expand` in the help bar. Press `=` to rerun the search
+with `expanded_match_limit`, keeping your LSP definitions, declarations, and
+references in the results. The `=` action only does something when the search
+was actually capped.
 
 ```lua
 opts = {
@@ -194,8 +247,8 @@ opts = {
 
 `default_result_filtering` sets which result filter the picker opens with. It
 defaults to `"all"`, so every match is visible up front, including string,
-prose, and comment hits. Set it to `"code"`, `"references"`, or `"definitions"`
-to start narrower:
+prose, and comment hits. Set it to `"code"`, `"references"`, `"definitions"`, or
+`"text"` to start narrower:
 
 ```lua
 opts = {
@@ -203,7 +256,7 @@ opts = {
 }
 ```
 
-You can still cycle the filter at runtime with the `1`/`2`/`3`/`4` keys in the
+You can still cycle the filter at runtime with the `1`/`2`/`3`/`4`/`5` keys in the
 filter panel; this option only controls the starting state.
 
 `ignored_dirs` lets you add directory names to skip during the text search.
@@ -285,3 +338,13 @@ tab.
 Run `:checkhealth peeper_picker` to check your Neovim version, attached LSP
 clients, and whether the current buffer has an LSP client that supports
 declaration, definition, or references.
+
+Both `:help peeper-picker` and `:checkhealth peeper_picker` require the plugin to
+be on Neovim's `runtimepath`. Plugin managers usually handle this after install
+or the first lazy-load. When testing a local checkout directly, add the checkout
+to `runtimepath` and generate help tags first:
+
+```vim
+:set runtimepath+=/path/to/peeper-picker.nvim
+:helptags /path/to/peeper-picker.nvim/doc
+```

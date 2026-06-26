@@ -10,6 +10,7 @@ local result_filter_aliases = {
   references = "refs",
   defs = "defs",
   definitions = "defs",
+  text = "text",
 }
 
 function M.default_result_mode()
@@ -68,7 +69,11 @@ function M.match(item, filters, source)
   local is_definition = item.kind == "def" or item.kind == "decl"
   local is_extra_match = item.kind == "txt" or item.kind == "com"
 
-  if (filters.match_mode or "code") ~= "all" and is_extra_match then
+  if filters.kind_mode == "text" then
+    if not is_extra_match then
+      return false
+    end
+  elseif (filters.match_mode or "code") ~= "all" and is_extra_match then
     return false
   end
 
@@ -79,9 +84,9 @@ function M.match(item, filters, source)
     return false
   end
 
+  -- "workspace" scope keeps every item; only file/dir scopes narrow the set
   local item_path = paths.normalize(vim.uri_to_fname(item.uri))
-  if filters.scope == "workspace" then
-  elseif filters.scope == "file" then
+  if filters.scope == "file" then
     if not source.path or item_path ~= source.path then
       return false
     end
@@ -126,7 +131,16 @@ function M.apply(items, filters, source)
   return filtered
 end
 
-function M.scope_hint(source)
+function M.scope_hint(source, scope)
+  source = source or {}
+  scope = scope or "workspace"
+  if scope == "file" then
+    return "file: "
+      .. (source.path and paths.display_path_from_root(source.path, source.workspace_root) or "[No Name]")
+  end
+  if scope == "dir" then
+    return "directory: " .. (source.dir and paths.display_path(source.dir) or "[No Name]")
+  end
   if source.workspace_root then
     return "workspace: " .. paths.display_path(source.workspace_root)
   end
@@ -145,14 +159,13 @@ function M.result_mode(filters)
   if filters.kind_mode == "defs" then
     return "defs"
   end
+  if filters.kind_mode == "text" then
+    return "text"
+  end
   if filters.match_mode == "all" then
     return "all"
   end
   return "code"
-end
-
-function M.result_label(filters)
-  return M.result_mode(filters)
 end
 
 function M.set_result_mode(filters, mode)
@@ -162,6 +175,9 @@ function M.set_result_mode(filters, mode)
   elseif mode == "defs" then
     filters.kind_mode = "defs"
     filters.match_mode = "code"
+  elseif mode == "text" then
+    filters.kind_mode = "text"
+    filters.match_mode = "all"
   elseif mode == "all" then
     filters.kind_mode = "both"
     filters.match_mode = "all"

@@ -143,6 +143,36 @@ local function has_matching_ancestor(node, fragments, max_depth)
   return false
 end
 
+local type_fragments = {
+  "type_identifier", "scoped_type_identifier", "type_annotation", "qualified_type",
+  "generic_type", "type_reference", "type_ref", "named_type", "type_name",
+  "supertype", "implements", "extends",
+}
+
+local fuzzy_roles = {
+  { { "enum_member", "enummember", "variant" }, "enum member" },
+  { { "type_parameter", "typeparameter" }, "type parameter" },
+  { { "property" }, "property" },
+  { { "field" }, "field" },
+  { { "parameter" }, "parameter" },
+  { { "method" }, "method" },
+  { { "function", "lambda", "closure", "arrow" }, "function" },
+  { { "class" }, "class" },
+  { { "interface", "trait" }, "interface" },
+  { { "struct" }, "struct" },
+  { { "enum" }, "enum" },
+  { { "module", "mod" }, "module" },
+  { { "namespace" }, "namespace" },
+  { { "package" }, "package" },
+  { { "constructor" }, "constructor" },
+  { { "constant", "const" }, "constant" },
+  { { "event" }, "event" },
+  { { "macro" }, "macro" },
+  { { "decorator", "annotation" }, "decorator" },
+  { { "variable", "binding", "declarator", "let", "var" }, "variable" },
+  { type_fragments, "type" },
+}
+
 local function role_from_node_type(node_type)
   if not node_type then
     return nil
@@ -153,68 +183,10 @@ local function role_from_node_type(node_type)
     return exact
   end
 
-  if type_matches(node_type, { "enum_member", "enummember", "variant" }) then
-    return "enum member"
-  end
-  if type_matches(node_type, { "type_parameter", "typeparameter" }) then
-    return "type parameter"
-  end
-  if type_matches(node_type, { "property" }) then
-    return "property"
-  end
-  if type_matches(node_type, { "field" }) then
-    return "field"
-  end
-  if type_matches(node_type, { "parameter" }) then
-    return "parameter"
-  end
-  if type_matches(node_type, { "method" }) then
-    return "method"
-  end
-  if type_matches(node_type, { "function", "lambda", "closure", "arrow" }) then
-    return "function"
-  end
-  if type_matches(node_type, { "class" }) then
-    return "class"
-  end
-  if type_matches(node_type, { "interface", "trait" }) then
-    return "interface"
-  end
-  if type_matches(node_type, { "struct" }) then
-    return "struct"
-  end
-  if type_matches(node_type, { "enum" }) then
-    return "enum"
-  end
-  if type_matches(node_type, { "module", "mod" }) then
-    return "module"
-  end
-  if type_matches(node_type, { "namespace" }) then
-    return "namespace"
-  end
-  if type_matches(node_type, { "package" }) then
-    return "package"
-  end
-  if type_matches(node_type, { "constructor" }) then
-    return "constructor"
-  end
-  if type_matches(node_type, { "constant", "const" }) then
-    return "constant"
-  end
-  if type_matches(node_type, { "event" }) then
-    return "event"
-  end
-  if type_matches(node_type, { "macro" }) then
-    return "macro"
-  end
-  if type_matches(node_type, { "decorator", "annotation" }) then
-    return "decorator"
-  end
-  if type_matches(node_type, { "variable", "binding", "declarator", "let", "var" }) then
-    return "variable"
-  end
-  if type_matches(node_type, { "type_identifier", "scoped_type_identifier", "type_annotation", "qualified_type", "generic_type", "type_reference", "type_ref", "named_type", "type_name", "supertype", "implements", "extends" }) then
-    return "type"
+  for _, entry in ipairs(fuzzy_roles) do
+    if type_matches(node_type, entry[1]) then
+      return entry[2]
+    end
   end
 
   return nil
@@ -288,7 +260,7 @@ local function treesitter_source_symbol(bufnr, cursor, word)
       if has_matching_ancestor(current, { "type_parameter", "typeparameter" }) then
         return { kind = "type parameter", name = word }
       end
-      if has_matching_ancestor(current, { "type_identifier", "scoped_type_identifier", "type_annotation", "qualified_type", "generic_type", "type_reference", "type_ref", "named_type", "type_name", "supertype", "implements", "extends" }) then
+      if has_matching_ancestor(current, type_fragments) then
         return { kind = "type", name = word }
       end
       if parent_node_type and type_matches(parent_node_type, { "call", "invoke" }) then
@@ -300,9 +272,6 @@ local function treesitter_source_symbol(bufnr, cursor, word)
       if parent_node_type and type_matches(parent_node_type, { "member", "field", "property", "access" }) then
         if grandparent_node_type and type_matches(grandparent_node_type, { "call", "invoke" }) then
           return { kind = "method", name = word }
-        end
-        if node_type == "field_identifier" then
-          return { kind = "field", name = word }
         end
         return { kind = "property", name = word }
       end

@@ -1,31 +1,14 @@
 local M = {}
 
-local config = require("peeper_picker.config")
 local paths = require("peeper_picker.paths")
+local results = require("peeper_picker.results")
 local list = require("peeper_picker.ui.list")
 local lifecycle = require("peeper_picker.ui.lifecycle")
-
-local function item_byte_col(bufnr, item)
-  local position = item.range and item.range.start
-  if not position then
-    return 0
-  end
-  local ok, byte_col = pcall(
-    vim.lsp.util._get_line_byte_from_position,
-    bufnr,
-    position,
-    item.position_encoding or "utf-16"
-  )
-  return ok and byte_col or position.character
-end
 
 local function jump_to_item(state, item, command, reuse_window)
   local path = vim.uri_to_fname(item.uri)
   if reuse_window == nil then
     reuse_window = state.opts.reuse_window
-  end
-  if reuse_window == nil then
-    reuse_window = config.options.reuse_window
   end
 
   local tabpage, win
@@ -37,7 +20,7 @@ local function jump_to_item(state, item, command, reuse_window)
     vim.api.nvim_set_current_tabpage(tabpage)
     vim.api.nvim_set_current_win(win)
   else
-    command = command or state.opts.jump or config.options.jump
+    command = command or state.opts.jump
     if type(command) == "function" then
       command(path, item)
     else
@@ -48,7 +31,8 @@ local function jump_to_item(state, item, command, reuse_window)
   local line_count = math.max(1, vim.api.nvim_buf_line_count(bufnr))
   local row = math.min(math.max(item.range.start.line + 1, 1), line_count)
   local line_text = vim.api.nvim_buf_get_lines(bufnr, row - 1, row, false)[1] or ""
-  local col = math.min(math.max(item_byte_col(bufnr, item), 0), #line_text)
+  local col = results.byte_col(line_text, item.range and item.range.start, item.position_encoding) or 0
+  col = math.min(math.max(col, 0), #line_text)
   pcall(vim.api.nvim_win_set_cursor, 0, { row, col })
   vim.cmd("normal! zz")
 end

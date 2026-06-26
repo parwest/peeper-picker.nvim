@@ -1,6 +1,6 @@
 local M = {}
 
-local uv = vim.uv or vim.loop
+local uv = vim.uv
 local sep = package.config:sub(1, 1)
 local is_windows = sep == "\\"
 
@@ -32,7 +32,6 @@ end
 local normalize_cache = {}
 local display_uri_cache = {}
 
--- path cache is only valid while the fs layout holds; cleared at each lookup
 function M.reset_cache()
   normalize_cache = {}
   display_uri_cache = {}
@@ -59,7 +58,11 @@ function M.is_inside(path, root)
   end
   local normalized_path = comparable(M.normalize(path))
   local normalized_root = comparable(M.normalize(root))
-  return normalized_path == normalized_root or normalized_path:sub(1, #normalized_root + 1) == normalized_root .. sep
+  if normalized_path == normalized_root then
+    return true
+  end
+  local prefix = normalized_root:sub(-1) == sep and normalized_root or normalized_root .. sep
+  return normalized_path:sub(1, #prefix) == prefix
 end
 
 function M.relative_to(path, root)
@@ -130,7 +133,7 @@ local function too_broad(path)
     return true
   end
   local home = M.normalize(vim.fn.expand("~"))
-  return #comparable(path) <= #comparable(home)
+  return M.is_inside(home, path)
 end
 
 local function valid_root(root, current_path)
@@ -209,6 +212,16 @@ end
 
 function M.display_path(path)
   return M.display_uri(vim.uri_from_fname(path))
+end
+
+function M.display_path_from_root(path, root)
+  if root then
+    local relative = M.relative_to(path, root)
+    if relative and relative ~= "" then
+      return M.display_path(root) .. sep .. relative
+    end
+  end
+  return M.display_path(path)
 end
 
 function M.find_open_window(path)
