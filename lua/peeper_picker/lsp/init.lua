@@ -14,7 +14,7 @@ M.methods = methods
 M.source_symbol = classify.source_symbol
 
 local function client_position_params(client, bufnr, params_by_encoding)
-  local encoding = client.offset_encoding or "utf-16"
+  local encoding = results.normalize_encoding(client.offset_encoding)
   local params = vim.deepcopy(params_by_encoding[encoding] or params_by_encoding["utf-16"])
   params.textDocument.uri = vim.uri_from_bufnr(bufnr)
   return params, encoding
@@ -77,7 +77,6 @@ local collectors = {
 function M.collect(bufnr, params_by_encoding, on_done)
   local items, seen = {}, {}
 
-  -- snapshot supported methods up front so pending matches the requests launched
   local active = {}
   for _, collector in ipairs(collectors) do
     if #vim.lsp.get_clients({ bufnr = bufnr, method = collector.method }) > 0 then
@@ -96,7 +95,6 @@ function M.collect(bufnr, params_by_encoding, on_done)
     if pending > 0 then
       return
     end
-    results.sort(items)
     on_done(items)
   end
 

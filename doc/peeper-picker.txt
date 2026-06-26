@@ -13,17 +13,27 @@ CONTENTS                                            *peeper-picker-contents*
 ==============================================================================
 INTRODUCTION                                        *peeper-picker*
 
-peeper-picker.nvim opens a small picker for LSP declarations, definitions, and
-references for the symbol under the cursor.
+peeper-picker.nvim opens a focused usage picker for the symbol under the cursor.
+It shows every place the symbol lives: definitions, references, and the matches
+other tools miss in strings, comments, prose, and generated files.
+
+It works by combining two sources. The language server provides the definitions
+and references it knows about, and a workspace text search catches everything it
+does not. Each result is tagged by where it came from: REF for code, TXT for
+strings and prose, COM for comments.
 
 ==============================================================================
 REQUIREMENTS                                        *peeper-picker-requirements*
 
-- Neovim 0.12.2 or newer
+- Neovim 0.11 or newer
 - An attached LSP client that supports at least one of:
   - textDocument/declaration
   - textDocument/definition
   - textDocument/references
+
+peeper-picker is LSP-gated: with no supporting client it does nothing (and
+warns). The text search only augments live LSP results; it never runs on its
+own.
 
 ==============================================================================
 INSTALLATION                                        *peeper-picker-installation*
@@ -60,14 +70,45 @@ lists for common development filetypes.
 
 Picker mappings:
 
-  <CR>        Open the selected result with the configured jump behavior
+  <CR>        Open a result, or collapse/expand a selected file group
+  J / K       Jump to the next / previous file group
+  zo/zc/za    Expand / collapse / toggle the current file group
+  zM / zR     Collapse all / expand all file groups
   <C-v>       Open the selected result in a vertical split
   <C-x>       Open the selected result in a horizontal split
   <C-t>       Open the selected result in a tab
-  j / k       Move selection
+  j / k       Move selection (wraps around the ends)
+  gg / G      Jump to the first / last visible row
   f           Open filters
+  ?           Open key help
   =           If text results are capped, rescan with the expanded limit
   q / <Esc>   Close
+
+A count works like normal Vim motion: 5j / 5k move five rows and stop at the end
+if there are fewer rows left.
+
+Result types:
+
+  DEF   A definition confirmed by the LSP
+  DECL  A declaration confirmed by the LSP
+  REF   A code occurrence, either LSP-confirmed or found by text search
+  TXT   A textual match inside a string, template, or prose file
+  COM   A textual match inside a comment
+
+DEF and DECL come from separate language-server methods; when both report the
+same location, DEF takes precedence. REF includes LSP references plus
+code-looking text matches the language server did not report. TXT and COM come
+from the workspace text search and only appear when the language server did not
+already report that location, so the same hit never shows twice.
+
+Results are grouped by file and expanded by default. The primary definition
+file appears first and the remaining files follow normal result order. The
+source file and exact source occurrence are marked with ●.
+
+For source files, matching files are parsed with Tree-sitter when a parser for
+their filetype is available, including files that are not open in a buffer.
+Without a parser, prose files and full-line comments still use fallback
+classification, while ambiguous strings and inline comments may appear as REF.
 
 Filter mappings:
 
@@ -75,7 +116,8 @@ Filter mappings:
   1           Show code
   2           Show references
   3           Show definitions
-  4           Show all
+  4           Show text
+  5           Show all
   p           Filter by path text. Start with ! to exclude matching paths
   t           Filter by extension. Start with ! to exclude matching extensions
   r           Reset the focused filter
@@ -96,6 +138,9 @@ Defaults: >
     jump = "tabedit",
     reuse_window = true,
     expanded_match_limit = 50000,
+    scan_files_per_tick = 64,
+    classify_files_per_tick = 8,
+    default_result_filtering = "all",
     default_keymaps = {
       enabled = false,
       find = "<leader>pp",
@@ -118,6 +163,22 @@ To change the expanded bound: >
 <
 The = mapping does nothing unless the initial text search reached its match
 cap.
+
+`scan_files_per_tick` limits how many queued files the built-in text search
+opens per scheduler tick. `classify_files_per_tick` limits how many matching
+files are classified with Tree-sitter per tick, keeping large scans responsive
+without adding an external search dependency.
+
+`default_result_filtering` sets which result filter the picker opens with. It
+defaults to "all", so every match is visible up front, including string, prose,
+and comment hits. Set it to "code", "references", "definitions", or "text" to
+start narrower. You can still cycle the filter at runtime with the 1/2/3/4/5
+keys in the filter panel; this option only controls the starting state. >
+
+  require("peeper_picker").setup({
+    default_result_filtering = "code",
+  })
+<
 
 `jump` controls what <CR> does. It can be an Ex command such as "edit",
 "split", "vsplit", or "tabedit": >

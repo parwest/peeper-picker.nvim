@@ -3,7 +3,6 @@ local M = {}
 local config = require("peeper_picker.config")
 local filters = require("peeper_picker.filters")
 local grep = require("peeper_picker.grep")
-local grep_classify = require("peeper_picker.grep_classify")
 local keywords = require("peeper_picker.keywords")
 local lsp = require("peeper_picker.lsp")
 local paths = require("peeper_picker.paths")
@@ -17,6 +16,8 @@ local state = {
   filter_prompt = nil,
   all_items = {},
   items = {},
+  list_rows = {},
+  collapsed_groups = {},
   filters = filters.defaults(),
   source = {},
   lookup_id = 0,
@@ -86,17 +87,18 @@ function M.find()
   end
 
   local cursor = vim.api.nvim_win_get_cursor(0)
-  local cursor_word_pre = vim.fn.expand("<cword>")
-  if cursor_on_keyword(bufnr, cursor, cursor_word_pre) then
+  local cursor_word = vim.fn.expand("<cword>")
+  if cursor_on_keyword(bufnr, cursor, cursor_word) then
     return
   end
   local current_path = vim.api.nvim_buf_get_name(bufnr)
   current_path = current_path ~= "" and paths.normalize(current_path) or nil
-  local cursor_word = vim.fn.expand("<cword>")
   local source_symbol = lsp.source_symbol(bufnr, cursor, cursor_word) or {}
   local word = source_symbol.name and source_symbol.name ~= "" and source_symbol.name or cursor_word
   state.opts = config.options
   state.filters = filters.defaults()
+  state.list_rows = {}
+  state.collapsed_groups = {}
   state.result_meta = nil
   state.expand_results = nil
   state.source = {
@@ -115,7 +117,9 @@ function M.find()
     params_by_encoding[encoding] = vim.lsp.util.make_position_params(0, encoding)
   end
 
-  ui.open_menu(state, lookup_id)
+  if not ui.open_menu(state, lookup_id) then
+    return
+  end
 
   local function active_lookup()
     local menu = state.menu
@@ -143,6 +147,12 @@ function M.find()
         merged[#merged + 1] = item
       end
     end
+    if not results.mark_origin(merged, state.source) then
+      local origin = results.origin_item(state.source)
+      if origin then
+        merged[#merged + 1] = origin
+      end
+    end
     results.sort(merged)
     state.all_items = merged
     if #merged > 0 then
@@ -152,11 +162,34 @@ function M.find()
     end
   end
 
+  -- coalesce streaming grep batches to one render per frame with a guaranteed trailing render
+  local schedule_rebuild
+  local rebuild_armed = false
+  local rebuild_dirty = false
+
+  local function flush_rebuild()
+    rebuild_armed = false
+    if rebuild_dirty then
+      rebuild_dirty = false
+      schedule_rebuild()
+    end
+  end
+
+  function schedule_rebuild()
+    if rebuild_armed then
+      rebuild_dirty = true
+      return
+    end
+    rebuild_armed = true
+    rebuild()
+    vim.defer_fn(flush_rebuild, 24)
+  end
+
   lsp.collect(bufnr, params_by_encoding, function(items)
     vim.schedule(function()
       lsp_items = items
       lsp_done = true
-      rebuild()
+      schedule_rebuild()
     end)
   end)
 
@@ -183,37 +216,46 @@ function M.find()
           return
         end
         for _, item in ipairs(batch) do
-          local fname = vim.uri_to_fname(item.uri)
-          local lnum = item.range.start.line + 1
-          local col = item.range.start.character + 1
-          item.kind = grep_classify.classify(fname, lnum, col, item.text)
           grep_items[#grep_items + 1] = item
         end
-        rebuild()
+        schedule_rebuild()
       end, function(meta)
         if scan_id ~= grep_scan_id or not active_lookup() then
           return
         end
         meta = meta or {}
         local expand_limit = expanded_limit()
-        meta.expanded = expanded
-        meta.expand_limit = expand_limit
         meta.expandable = not expanded
           and meta.matches == true
           and expand_limit > (meta.match_limit or 0)
         grep_done = true
         state.result_meta = meta
-        rebuild()
+        schedule_rebuild()
       end)
     end
 
     state.expand_results = function()
       local meta = state.result_meta
-      if not active_lookup() or not meta or not meta.expandable then
-        return
+      if not active_lookup() then
+        return false
       end
-      state.result_meta = nil
+      if not meta then
+        return false, "text search is still running"
+      end
+      if not meta.expandable then
+        if meta.matches or meta.files then
+          return false, "expanded_match_limit is not above the current cap"
+        end
+        return false, "text search is not capped"
+      end
+      state.result_meta = {
+        matches = true,
+        match_limit = meta.match_limit,
+        expanding = true,
+      }
+      schedule_rebuild()
       run_grep(expanded_limit(), true)
+      return true
     end
 
     run_grep(nil, false)

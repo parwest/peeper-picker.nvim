@@ -2,23 +2,12 @@ local M = {}
 
 local lsp = require("peeper_picker.lsp")
 
-local minimum_version = "0.12.2"
+local minimum_version = "0.11.0"
 
 local function has_minimum_nvim()
-  local version = vim.version()
-  if version.major > 0 then
-    return true
-  end
-  if version.minor > 12 then
-    return true
-  end
-  if version.minor < 12 then
-    return false
-  end
-  return version.patch >= 2
+  return vim.fn.has("nvim-0.11") == 1
 end
 
--- checkhealth's own buffer has no lsp; fall back to the alternate buffer
 local function target_buffer()
   local alt = vim.fn.bufnr("#")
   if alt > 0 and vim.api.nvim_buf_is_valid(alt) then
@@ -71,4 +60,3 @@ function M.check()
 end
 
 return M
-
