@@ -43,16 +43,18 @@ own.
 {
   "parwest/peeper-picker.nvim",
   main = "peeper_picker",
-  cmd = "PeeperPicker",
+  cmd = { "PeeperPicker", "PeeperPickerHistory" },
   opts = {},
   keys = {
     { "<leader>pp", "<cmd>PeeperPicker<cr>", desc = "Peeper Picker" },
+    { "<leader>ph", "<cmd>PeeperPickerHistory<cr>", desc = "Peeper Picker History" },
   },
 }
 ```
 
-This lazy-loads the plugin on either `:PeeperPicker` or `<leader>pp`. Drop the
-`keys` block if you only want the command and no mapping.
+This lazy-loads the plugin on `:PeeperPicker` / `<leader>pp` (or
+`:PeeperPickerHistory` / `<leader>ph`). Drop the `keys` block if you only want
+the commands and no mappings.
 
 ### Setting your own keybinding
 
@@ -201,6 +203,33 @@ have to leave the picker to look one up.
   <sub>Built-in key help (<code>?</code>)</sub>
 </p>
 
+### Peek history
+
+`:PeeperPickerHistory` opens a menu of the symbols you have recently peeked,
+newest first. It is a plain list of names — one per line — and only names you
+actually peeked ever appear. Move with `j`/`k`, press `<CR>` to peek a name
+again, `c` to clear the list (it asks first), and `q` or `<Esc>` to close.
+
+Peeking from history never moves your cursor or changes the buffer you are in,
+so it is handy for jumping back to a symbol mid-refactor without losing your
+place.
+
+Renames are handled without any bookkeeping on your part. If you peek `oldName`
+and later rename it to `newName`, the list still shows `oldName` — you never
+peeked `newName`, so it does not appear until you do. Hitting `oldName` then
+text-searches for `oldName` and surfaces the occurrences that still use the old
+name (the stragglers a rename left behind). A name that still resolves to a live
+symbol runs a full peek — LSP definitions and references plus the text search —
+as usual.
+
+Peeking the same name twice keeps a single entry, moved back to the top. History
+is kept in memory for the session only (nothing is written to disk) and is
+bounded by `history_size` (default 100; 0 disables history).
+
+Map it the same way as `<leader>pp` — add
+`{ "<leader>ph", "<cmd>PeeperPickerHistory<cr>", desc = "Peeper Picker History" }`
+to your `keys` table (see [Installation](#lazynvim)).
+
 ## Configuration
 
 Defaults:
@@ -219,9 +248,11 @@ Defaults:
   scan_files_per_tick = 64,
   classify_files_per_tick = 8,
   default_result_filtering = "all",
+  history_size = 100,
   default_keymaps = {
     enabled = false,
     find = "<leader>pp",
+    history = "<leader>ph",
   },
   ignored_dirs = {},
   ignored_keywords = {},

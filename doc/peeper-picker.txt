@@ -43,12 +43,16 @@ With lazy.nvim: >
   {
     "parwest/peeper-picker.nvim",
     main = "peeper_picker",
-    cmd = "PeeperPicker",
+    cmd = { "PeeperPicker", "PeeperPickerHistory" },
     opts = {},
+    keys = {
+      { "<leader>pp", "<cmd>PeeperPicker<cr>", desc = "Peeper Picker" },
+      { "<leader>ph", "<cmd>PeeperPickerHistory<cr>", desc = "Peeper Picker History" },
+    },
   }
 <
-The plugin defines |:PeeperPicker| when it is loaded without loading the full
-picker. Calling setup applies your options: >
+The plugin defines |:PeeperPicker| and |:PeeperPickerHistory| when it is loaded
+without loading the full picker. Calling setup applies your options: >
 
   require("peeper_picker").setup({
     -- options go here
@@ -123,6 +127,28 @@ Filter mappings:
   r           Reset the focused filter
   x           Reset all filters
 
+Peek history:
+
+  :PeeperPickerHistory
+
+Opens a menu of the symbols you recently peeked, newest first — a plain list of
+names, and only names you actually peeked. Peeking from history does not move
+the cursor or change the current buffer.
+
+History menu mappings:
+
+  <CR>        Peek the name under the cursor again
+  j / k       Move selection
+  c           Clear the history (asks to confirm)
+  q / <Esc>   Close
+
+If you peek a name and later rename it, the list still shows the old name until
+you peek the new one yourself. Hitting a name that no longer resolves to a live
+symbol text-searches that name and shows the occurrences still using it; a name
+that still resolves runs a full peek. Peeking the same name twice keeps one
+entry, moved to the top. History lives in memory for the session only and is
+bounded by `history_size`.
+
 ==============================================================================
 CONFIGURATION                                       *peeper-picker-configuration*
 
@@ -141,9 +167,11 @@ Defaults: >
     scan_files_per_tick = 64,
     classify_files_per_tick = 8,
     default_result_filtering = "all",
+    history_size = 100,
     default_keymaps = {
       enabled = false,
       find = "<leader>pp",
+      history = "<leader>ph",
     },
     ignored_dirs = {},
     ignored_keywords = {},
@@ -168,6 +196,10 @@ cap.
 opens per scheduler tick. `classify_files_per_tick` limits how many matching
 files are classified with Tree-sitter per tick, keeping large scans responsive
 without adding an external search dependency.
+
+`history_size` bounds how many recent names |:PeeperPickerHistory| keeps
+(default 100); 0 disables history. The list is per-session and is never
+written to disk.
 
 `default_result_filtering` sets which result filter the picker opens with. It
 defaults to "all", so every match is visible up front, including string, prose,

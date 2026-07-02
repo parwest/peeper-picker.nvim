@@ -3,6 +3,7 @@ local M = {}
 local config = require("peeper_picker.config")
 local filters = require("peeper_picker.filters")
 local grep = require("peeper_picker.grep")
+local history = require("peeper_picker.history")
 local keywords = require("peeper_picker.keywords")
 local lsp = require("peeper_picker.lsp")
 local paths = require("peeper_picker.paths")
@@ -26,7 +27,7 @@ local state = {
   opts = config.options,
 }
 
-local active_default_keymap = nil
+local active_default_keymaps = {}
 
 local function cursor_on_keyword(bufnr, cursor, word)
   local row = cursor[1] - 1
@@ -56,45 +57,78 @@ local function cursor_on_keyword(bufnr, cursor, word)
 end
 
 local function setup_keymaps()
-  if active_default_keymap then
-    pcall(vim.keymap.del, "n", active_default_keymap)
-    active_default_keymap = nil
+  for _, lhs in ipairs(active_default_keymaps) do
+    pcall(vim.keymap.del, "n", lhs)
   end
+  active_default_keymaps = {}
 
   local keymaps = config.options.default_keymaps or {}
   if not keymaps.enabled then
     return
   end
 
-  local find_key = keymaps.find
-  if find_key and find_key ~= "" then
-    vim.keymap.set("n", find_key, M.find, { desc = "Peeper Picker" })
-    active_default_keymap = find_key
+  local binds = {
+    { keymaps.find, M.find, "Peeper Picker" },
+    { keymaps.history, M.history, "Peeper Picker History" },
+  }
+  for _, bind in ipairs(binds) do
+    local lhs, fn, desc = bind[1], bind[2], bind[3]
+    if lhs and lhs ~= "" then
+      vim.keymap.set("n", lhs, fn, { desc = desc })
+      active_default_keymaps[#active_default_keymaps + 1] = lhs
+    end
   end
 end
 
-function M.find()
-  local bufnr = vim.api.nvim_get_current_buf()
+local POSITION_ENCODINGS = { "utf-8", "utf-16", "utf-32" }
+
+-- position params for an arbitrary buffer location, so a peep can target a stored
+-- anchor without moving the cursor or relying on the current window
+local function position_params(bufnr, row, col)
+  local uri = vim.uri_from_bufnr(bufnr)
+  local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+  col = math.max(0, math.min(col, #line))
+  local params = {}
+  for _, encoding in ipairs(POSITION_ENCODINGS) do
+    local character = col
+    if encoding ~= "utf-8" then
+      local ok, idx = pcall(vim.str_utfindex, line, encoding, col, false)
+      if ok then
+        character = idx
+      end
+    end
+    params[encoding] = {
+      textDocument = { uri = uri },
+      position = { line = row, character = character },
+    }
+  end
+  return params
+end
+
+-- spec: { bufnr, row (1-based), col (0-based byte), word, symbol_kind, record }
+local function run_peep(spec)
+  local bufnr = spec.bufnr
+  if not (bufnr and vim.api.nvim_buf_is_valid(bufnr)) then
+    return
+  end
   preview.reset()
   paths.reset_cache()
   state.lookup_id = state.lookup_id + 1
   local lookup_id = state.lookup_id
 
-  if lsp.supported_count(bufnr) == 0 then
+  if not spec.text_only and lsp.supported_count(bufnr) == 0 then
     ui.close_menu(state)
     vim.notify("peeper-picker.nvim: no supported LSP definition/reference methods", vim.log.levels.WARN)
     return
   end
 
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local cursor_word = vim.fn.expand("<cword>")
-  if cursor_on_keyword(bufnr, cursor, cursor_word) then
-    return
+  local row, col, word = spec.row, spec.col, spec.word
+  if spec.record ~= false and word and word ~= "" then
+    history.record(bufnr, row - 1, col, word)
   end
+
   local current_path = vim.api.nvim_buf_get_name(bufnr)
   current_path = current_path ~= "" and paths.normalize(current_path) or nil
-  local source_symbol = lsp.source_symbol(bufnr, cursor, cursor_word) or {}
-  local word = source_symbol.name and source_symbol.name ~= "" and source_symbol.name or cursor_word
   state.opts = config.options
   state.filters = filters.defaults()
   state.list_rows = {}
@@ -106,16 +140,13 @@ function M.find()
     dir = current_path and paths.normalize(vim.fn.fnamemodify(current_path, ":p:h")) or nil,
     workspace_root = paths.workspace_root(bufnr, current_path),
     filetype = vim.bo[bufnr].filetype,
-    symbol_kind = source_symbol.kind or "symbol",
+    symbol_kind = spec.symbol_kind or "symbol",
     word = word,
-    line = cursor[1],
-    character = cursor[2] + 1,
-    line_text = vim.api.nvim_buf_get_lines(bufnr, cursor[1] - 1, cursor[1], false)[1] or "",
+    line = row,
+    character = col + 1,
+    line_text = vim.api.nvim_buf_get_lines(bufnr, row - 1, row, false)[1] or "",
   }
-  local params_by_encoding = {}
-  for _, encoding in ipairs({ "utf-8", "utf-16", "utf-32" }) do
-    params_by_encoding[encoding] = vim.lsp.util.make_position_params(0, encoding)
-  end
+  local params_by_encoding = position_params(bufnr, row - 1, col)
 
   if not ui.open_menu(state, lookup_id) then
     return
@@ -147,10 +178,14 @@ function M.find()
         merged[#merged + 1] = item
       end
     end
-    if not results.mark_origin(merged, state.source) then
-      local origin = results.origin_item(state.source)
-      if origin then
-        merged[#merged + 1] = origin
+    -- a text-only peep hunts a defunct name; the anchor now holds the renamed
+    -- symbol, which is not a match, so don't inject it as an origin row
+    if not spec.text_only then
+      if not results.mark_origin(merged, state.source) then
+        local origin = results.origin_item(state.source)
+        if origin then
+          merged[#merged + 1] = origin
+        end
       end
     end
     results.sort(merged)
@@ -185,13 +220,20 @@ function M.find()
     vim.defer_fn(flush_rebuild, 24)
   end
 
-  lsp.collect(bufnr, params_by_encoding, function(items)
-    vim.schedule(function()
-      lsp_items = items
-      lsp_done = true
-      schedule_rebuild()
+  -- text_only peeps a defunct name (e.g. a former name after a rename); the LSP
+  -- can't resolve a name that no longer exists, so skip it and let grep find the
+  -- textual stragglers, the same way a peep of a comment/string word already does
+  if spec.text_only then
+    lsp_done = true
+  else
+    lsp.collect(bufnr, params_by_encoding, function(items)
+      vim.schedule(function()
+        lsp_items = items
+        lsp_done = true
+        schedule_rebuild()
+      end)
     end)
-  end)
+  end
 
   if word and word ~= "" then
     local function expanded_limit()
@@ -262,6 +304,48 @@ function M.find()
   else
     grep_done = true
   end
+end
+
+function M.find()
+  local bufnr = vim.api.nvim_get_current_buf()
+  if lsp.supported_count(bufnr) == 0 then
+    ui.close_menu(state)
+    vim.notify("peeper-picker.nvim: no supported LSP definition/reference methods", vim.log.levels.WARN)
+    return
+  end
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local cursor_word = vim.fn.expand("<cword>")
+  if cursor_on_keyword(bufnr, cursor, cursor_word) then
+    return
+  end
+  local source_symbol = lsp.source_symbol(bufnr, cursor, cursor_word) or {}
+  local word = source_symbol.name and source_symbol.name ~= "" and source_symbol.name or cursor_word
+  run_peep({
+    bufnr = bufnr,
+    row = cursor[1],
+    col = cursor[2],
+    word = word,
+    symbol_kind = source_symbol.kind,
+  })
+end
+
+function M.history()
+  local function open()
+    ui.open_history(state, history.list(), function(choice)
+      run_peep({
+        bufnr = choice.bufnr,
+        row = choice.row + 1,
+        col = choice.col,
+        word = choice.word,
+        text_only = choice.text_only,
+      })
+    end, function()
+      -- clearing re-opens the menu so it shows its empty state as confirmation
+      history.clear()
+      open()
+    end)
+  end
+  open()
 end
 
 function M.setup(opts)

@@ -41,6 +41,8 @@ function M.win_config(spec)
     border = spec.border,
     title = spec.title,
     title_pos = spec.title_pos or "center",
+    footer = spec.footer,
+    footer_pos = spec.footer and (spec.footer_pos or "center") or nil,
     zindex = spec.zindex,
     focusable = spec.focusable,
   }
