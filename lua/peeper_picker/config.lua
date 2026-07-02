@@ -13,9 +13,11 @@ M.defaults = {
   scan_files_per_tick = 64,
   classify_files_per_tick = 8,
   default_result_filtering = "all",
+  history_size = 100,
   default_keymaps = {
     enabled = false,
     find = "<leader>pp",
+    history = "<leader>ph",
   },
   ignored_dirs = {},
   ignored_keywords = {},

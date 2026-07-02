@@ -6,3 +6,7 @@ vim.g.loaded_peeper_picker_plugin = 1
 vim.api.nvim_create_user_command("PeeperPicker", function()
   require("peeper_picker").find()
 end, { desc = "Peeper Picker" })
+
+vim.api.nvim_create_user_command("PeeperPickerHistory", function()
+  require("peeper_picker").history()
+end, { desc = "Peeper Picker History" })
